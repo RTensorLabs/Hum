@@ -39,9 +39,16 @@ internal class BinauralRenderer(
     private val encode = FloatArray(channels * ORDER_CHANNELS)
     private val hrir: Array<FloatArray> = Hrir.forRate(sampleRate)
     private val taps = hrir[0].size
-    private val spectra = HashMap<Int, Array<FloatArray>>()
-    private val ffts = HashMap<Int, Fft>()
+    /** FFT sizes this renderer can need: a 1-frame block up to a [maxFrames] block. */
+    private val minSize = Fft.sizeFor(taps)
     private val maxSize = Fft.sizeFor(maxFrames + taps - 1)
+    private val minBits = Integer.numberOfTrailingZeros(minSize)
+    /** Transforms and HRIR spectra for every size, built once here so render() never allocates. */
+    private val ffts: Array<Fft>
+    private val spectra: Array<Array<FloatArray>>
+    /** Harmonics that some channel feeds, packed two per complex FFT. */
+    private val pairA: IntArray
+    private val pairB: IntArray
     private val work = Array(ORDER_CHANNELS) { FloatArray(maxFrames) }
     private val lfe = FloatArray(maxFrames)
     private val zr = FloatArray(maxSize); private val zi = FloatArray(maxSize)
@@ -65,7 +72,16 @@ internal class BinauralRenderer(
             for (acn in 0 until ORDER_CHANNELS) encode[ch * ORDER_CHANNELS + acn] = y[acn] * makeup
         }
         lfeGain = inputGain * MAKEUP * LFE_EAR_GAIN
-        spectraFor(maxSize)
+        // A harmonic no channel feeds (e.g. the height harmonics of a horizontal layout) is
+        // silent in every block; leaving it out changes no input to the convolution.
+        val active = (0 until ORDER_CHANNELS).filter { acn -> (0 until channels).any { encode[it * ORDER_CHANNELS + acn] != 0f } }.toIntArray()
+        // An odd harmonic out shares its FFT with a silent one, exactly as every pair did before.
+        val packed = if (active.size % 2 == 0) active else active + (0 until ORDER_CHANNELS).first { it !in active }
+        pairA = IntArray(packed.size / 2) { packed[2 * it] }
+        pairB = IntArray(packed.size / 2) { packed[2 * it + 1] }
+        val sizes = Integer.numberOfTrailingZeros(maxSize) - minBits + 1
+        ffts = Array(sizes) { Fft(minSize shl it) }
+        spectra = Array(sizes) { spectraFor(ffts[it], packed) }
     }
 
     /** Interleaved float32 [channels] in, interleaved stereo float32 out. Positions advance. */
@@ -91,33 +107,17 @@ internal class BinauralRenderer(
         input.position(base + frames * channels * 4)
 
         val n = Fft.sizeFor(frames + taps - 1)
-        val fft = ffts.getOrPut(n) { Fft(n) }
-        val h = spectraFor(n)
+        val index = Integer.numberOfTrailingZeros(n) - minBits
+        val fft = ffts[index]
+        val h = spectra[index]
         sr.fill(0f, 0, n); si.fill(0f, 0, n); ar.fill(0f, 0, n); ai.fill(0f, 0, n)
         // Two real harmonics per complex FFT, then split by Hermitian symmetry.
-        for (pair in 0 until ORDER_CHANNELS / 2) {
-            val a = 2 * pair; val b = a + 1
-            zr.fill(0f, 0, n); zi.fill(0f, 0, n)
-            System.arraycopy(work[a], 0, zr, 0, frames)
-            System.arraycopy(work[b], 0, zi, 0, frames)
-            fft.forward(zr, zi)
-            val ha = h[a]; val hb = h[b]
-            for (k in 0 until n) {
-                val nk = (n - k) and (n - 1)
-                // X_a = (Z[k] + conj Z[n-k]) / 2 ; X_b = (Z[k] - conj Z[n-k]) / 2j
-                val xar = .5f * (zr[k] + zr[nk]); val xai = .5f * (zi[k] - zi[nk])
-                val xbr = .5f * (zi[k] + zi[nk]); val xbi = -.5f * (zr[k] - zr[nk])
-                accumulate(a, k, xar, xai, ha[2 * k], ha[2 * k + 1])
-                accumulate(b, k, xbr, xbi, hb[2 * k], hb[2 * k + 1])
-            }
-        }
+        for (pair in pairA.indices) convolvePair(pairA[pair], pairB[pair], frames, n, fft, h)
         // s and a are real, so one inverse transform of S + jA returns s in re, a in im.
         for (k in 0 until n) { val r = sr[k] - ai[k]; val i = si[k] + ar[k]; zr[k] = r; zi[k] = i }
         fft.inverse(zr, zi)
         val tail = taps - 1
-        for (t in 0 until frames + tail) {
-            if (t < tail) { zr[t] += tailS[t]; zi[t] += tailA[t] }
-        }
+        for (t in 0 until tail) { zr[t] += tailS[t]; zi[t] += tailA[t] }
         for (k in 0 until tail) { tailS[k] = zr[frames + k]; tailA[k] = zi[frames + k] }
 
         val out = output.position()
@@ -136,14 +136,31 @@ internal class BinauralRenderer(
         output.position(out + frames * 8)
     }
 
+    private fun convolvePair(a: Int, b: Int, frames: Int, n: Int, fft: Fft, h: Array<FloatArray>) {
+        zr.fill(0f, 0, n); zi.fill(0f, 0, n)
+        System.arraycopy(work[a], 0, zr, 0, frames)
+        System.arraycopy(work[b], 0, zi, 0, frames)
+        fft.forward(zr, zi)
+        val ha = h[a]; val hb = h[b]
+        for (k in 0 until n) {
+            val nk = (n - k) and (n - 1)
+            // X_a = (Z[k] + conj Z[n-k]) / 2 ; X_b = (Z[k] - conj Z[n-k]) / 2j
+            val xar = .5f * (zr[k] + zr[nk]); val xai = .5f * (zi[k] - zi[nk])
+            val xbr = .5f * (zi[k] + zi[nk]); val xbi = -.5f * (zr[k] - zr[nk])
+            accumulate(a, k, xar, xai, ha[2 * k], ha[2 * k + 1])
+            accumulate(b, k, xbr, xbi, hb[2 * k], hb[2 * k + 1])
+        }
+    }
+
     private fun accumulate(acn: Int, k: Int, xr: Float, xi: Float, hr: Float, hi: Float) {
         val pr = xr * hr - xi * hi; val pi = xr * hi + xi * hr
         if (ANTISYMMETRIC[acn]) { ar[k] += pr; ai[k] += pi } else { sr[k] += pr; si[k] += pi }
     }
 
-    private fun spectraFor(n: Int): Array<FloatArray> = spectra.getOrPut(n) {
-        val fft = ffts.getOrPut(n) { Fft(n) }
-        Array(ORDER_CHANNELS) { acn ->
+    private fun spectraFor(fft: Fft, used: IntArray): Array<FloatArray> {
+        val n = fft.n
+        return Array(ORDER_CHANNELS) { acn ->
+            if (acn !in used) return@Array FloatArray(0)
             val re = FloatArray(n); val im = FloatArray(n)
             System.arraycopy(hrir[acn], 0, re, 0, taps)
             fft.forward(re, im)
