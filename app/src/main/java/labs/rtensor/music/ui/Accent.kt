@@ -319,8 +319,8 @@ private val CoverRetryMs = longArrayOf(CoverAccent.MissMs, 10_000, 20_000, 40_00
 internal fun rememberCoverColours(artwork: String?): CoverColours? {
     val context = LocalContext.current
     val url = artwork?.takeIf { it.isNotBlank() }?.let { ArtworkUrl.sized(it, 120) }
-    // The previous song's colour stays until the next one is known, so skipping animates from
-    // colour to colour instead of flashing back to Signal in between.
+    // The previous song's colour stays while the next one is being worked out, so skipping
+    // animates from colour to colour; it is cleared if that cover fails (see below).
     var colour by remember { mutableStateOf(url?.let(CoverAccent::cached)) }
     LaunchedEffect(url) {
         if (url == null) { colour = null; return@LaunchedEffect }
@@ -328,7 +328,10 @@ internal fun rememberCoverColours(artwork: String?): CoverColours? {
         while (true) {
             val found = CoverAccent.load(context.applicationContext, url)
             if (found != null) { colour = found; break }
-            // Keep the previous song's colour while this cover keeps failing; no flash to Signal.
+            // The previous song's colour carried this far only to animate a successful change. A
+            // cover that failed to load must not leave the last song's colour on this one: Signal
+            // until the cover arrives and a retry succeeds.
+            colour = null
             delay(CoverRetryMs[min(attempt++, CoverRetryMs.lastIndex)])
         }
     }

@@ -212,8 +212,8 @@ class CoverAccentUiTest {
         assertTrue("Play takes the cover accent", close(playFill(snapshot()), accentOnTone(colours.accent, tones.top)))
     }
 
-    /** Skipping to a song whose cover cannot load keeps the last colour instead of flashing to Signal. */
-    @Test fun aCoverThatKeepsFailingKeepsThePreviousColour() {
+    /** Skipping to a song whose cover cannot load must not leave the last song's colour on it. */
+    @Test fun aCoverThatFailsDoesNotKeepThePreviousSongsColour() {
         val first = track("yt:first", "https://yt3.googleusercontent.com/amber=w544-h544-l90-rj")
         val state = mutableStateOf(MusicState(accent = AccentChoice.COVER, look = labs.rtensor.music.data.LookChoice.ROOM, current = first, durationMs = 200_000, reducedMotion = true, theme = "light"))
         compose.setContent { MusicApp(state.value, initialPage = "now") }
@@ -225,13 +225,17 @@ class CoverAccentUiTest {
         val second = track("yt:second", "https://yt3.googleusercontent.com/gold=w544-h544-l90-rj")
         compose.runOnIdle { state.value = state.value.copy(current = second) }
         settle { requested.contains(accentUrl(second.artwork)) }
-        // Through several retries the accent stays the first cover's, not Signal.
+        // Through several retries the accent is Signal, never the first cover's colour.
         repeat(3) {
             compose.mainClock.advanceTimeBy(CoverAccent.MissMs + 1_000); settle()
-            val fill = playFill(snapshot())
-            assertFalse("not Signal while retrying", close(fill, SignalAccent))
+            assertTrue("Signal while the cover cannot load", close(playFill(snapshot()), SignalAccent))
         }
         assertNull(CoverAccent.cached(accentUrl(second.artwork)))
+        // The cover arrives on a retry and the accent becomes the second cover's own.
+        online = true
+        compose.mainClock.advanceTimeBy(CoverAccent.MissMs * 12); settle { CoverAccent.cached(accentUrl(second.artwork)) != null }
+        val next = CoverAccent.cached(accentUrl(second.artwork))!!
+        assertTrue("the second cover's colour", close(playFill(snapshot()), accentOnTone(next.accent, playerTones(next.deep).top)))
     }
 
     @Test fun playerScreenshotsWithSyntheticCovers() {

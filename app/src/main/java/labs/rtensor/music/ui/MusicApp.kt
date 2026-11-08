@@ -2747,7 +2747,9 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                 } else {
                     Text(if (state.accent == AccentChoice.COVER) "Taken from the artwork of the song that is playing. Berry is used when there is none."
                         else "The one strong colour on Play, highlights and the dock.",
-                        fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
+                        // Two lines reserved: the Cover text wraps and the swatches below must not jump when it is chosen.
+                        fontSize = 12.sp, lineHeight = 17.sp, color = scheme.onSurfaceVariant, minLines = 2,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 8.dp))
                     AccentSelector(state.accent, onAccent)
                 }
             }

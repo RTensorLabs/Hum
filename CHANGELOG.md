@@ -2,6 +2,20 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.11 (versionCode 55)
+
+### Fixed
+- With From the cover, a song whose cover could not be read no longer keeps the previous song's colour. Hum shows Berry until the cover loads, then takes the song's own colour.
+- Settings → Appearance: the colour swatches no longer jump down when you choose From the cover.
+
+### Changed
+- YouTube playback picks the audio more carefully. It chooses the original-language track first (never a dub or an audio-description track, unless you ask for one), then the best encoding YouTube offers for it. Surround audio is only used when its speaker layout is known. When you are signed in, your account's routes are tried first and the guest routes remain the fallback. The chosen stream stays the same across seeks and refreshed links.
+
+### Known
+- The background changes in one step when you change song or accent; it does not fade.
+- Whether YouTube serves higher-tier or surround audio for a given song has not been checked against live streams; Hum plays the best stream YouTube actually offers.
+- Connecting YouTube Music after choosing a Google account still opens Google’s sign-in page: Google does not let other apps reuse the phone’s Google login.
+
 ## 0.4.0-beta.10 (versionCode 54)
 
 ### Changed
