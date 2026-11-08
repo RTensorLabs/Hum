@@ -1,7 +1,7 @@
 import { fetchBrowsePage, fetchBrowseContinuation } from './browse-pages.mjs';
 import { advanceHomeCursor } from './feed-cursor.mjs';
 import { Innertube, Player, Platform, Log, Constants, ClientType, Utils } from 'youtubei.js/web';
-import { track, sections, safeError, largestArtwork, isMusic, audioVersion } from './mapping.mjs';
+import { track, playlistResults, sections, safeError, largestArtwork, isMusic, audioVersion } from './mapping.mjs';
 import { createLibraryActions, libraryMethods, searchSuggestions } from './library-actions.mjs';
 import { evaluatePlayer } from './evaluator.mjs';
 import { nativeTransport } from './transport.mjs';
@@ -194,6 +194,10 @@ async function search(api, query) {
   }
   const result = await api.music.search(query, { type: 'song' });
   return (result.contents || []).flatMap(s => s.contents || [s]).map(track).filter(Boolean);
+}
+/** Playlists matching the query. Optional: when YouTube refuses this search the songs still come back. */
+async function searchPlaylists(api, query) {
+  try { return playlistResults((await api.music.search(query, { type: 'playlist' })).contents); } catch { return []; }
 }
 async function prepareWebPlayback(api) {
   if (!savedSession()) return;
@@ -494,7 +498,11 @@ globalThis.musicCall = async (id, method, args) => {
       case 'suggestions':
         if (desiredSuggestions?.id !== id) throw new DOMException('Stale suggestions', 'AbortError');
         result = await searchSuggestions(api, args.query); break;
-      case 'search': result = { tracks: await search(api, args.query) }; break;
+      case 'search': {
+        const asLink = /^https?:/i.test(String(args.query).trim());
+        const [tracks, playlists] = await Promise.all([search(api, args.query), asLink ? [] : searchPlaylists(api, args.query)]);
+        result = { tracks, playlists }; break;
+      }
       case 'resolve': {
         const rejected = Array.isArray(args.rejectedPaths) ? [...new Set(args.rejectedPaths.filter(p => PLAYBACK_PATHS.includes(p)))].sort() : [];
         const required = args.requiredFormat || null;

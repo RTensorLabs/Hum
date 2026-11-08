@@ -35,7 +35,7 @@ internal fun youtubeSignOutNeeded(account: AccountState, storedSession: Boolean)
 /** The search box was cleared. Only an error the search produced goes with it. */
 internal fun MusicState.clearedSearch(): MusicState {
     val searchError = errorOrigin == ErrorOrigin.SEARCH
-    return copy(query = "", searched = false, searching = false, results = emptyList(),
+    return copy(query = "", searched = false, searching = false, results = emptyList(), playlistResults = emptyList(),
         error = if (searchError) null else error, errorDiagnostic = if (searchError) "" else errorDiagnostic)
 }
 

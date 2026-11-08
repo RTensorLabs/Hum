@@ -24,6 +24,23 @@ export function entry(node) {
     subtitle: artist || text(node.subtitle) || plain, artist: artist || (videoId ? plain : ''),
     artwork, kind, browseId, ...(kind === 'browse' && payload.params ? { params: payload.params } : {}), videoId, durationMs: (node.duration?.seconds || 0) * 1000 };
 }
+/**
+ * A playlist found by searching: its browse id and "Author · 48 songs". Albums, artists and songs that
+ * share the result list are left out, and a playlist with no id to open is dropped.
+ */
+export function playlistResult(node) {
+  if (!node || node.item_type !== 'playlist') return null;
+  const item = entry(node);
+  if (!item || !item.browseId || item.videoId) return null;
+  const count = text(node.item_count).replace(/^\s*[•·]\s*/, '').trim();
+  const author = text(node.author?.name || node.author).trim();
+  const detail = [author, count].filter(Boolean).join(' · ');
+  return { ...item, kind: 'playlist', subtitle: detail || item.subtitle.replace(/^Playlist\s*[•·]\s*/i, ''), artist: '' };
+}
+export function playlistResults(contents, limit = 12) {
+  const seen = new Set();
+  return (contents || []).flatMap(s => s?.contents || [s]).map(playlistResult).filter(p => p && !seen.has(p.browseId) && seen.add(p.browseId)).slice(0, limit);
+}
 export function track(node) {
   const item = entry(node);
   return item?.videoId ? { id: item.id, title: item.title, artist: item.artist,

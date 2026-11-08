@@ -143,7 +143,7 @@ class MainActivity : ComponentActivity() {
                     selectPlaylistImport = model::importPlaylistChoice, confirmPlaylistImport = model::confirmPlaylistImport,
                     choosePlaylistFile = { playlistFile.launch(arrayOf("*/*")) }, choosePlaylistFolder = { playlistAudioFolder.launch(null) }, choosePlaylistsFolder = { playlistsFolder.launch(null) },
                     connectYouTube = ::connectYouTube, dismissMessage = { model.actionMessage(null) }) },
-                onSuggestion = model::selectSuggestion, onHomeFilter = model::homeFilter,
+                onSuggestion = model::selectSuggestion, onRemoveSearch = model::removeSearch, onClearSearches = model::clearSearches, onHomeFilter = model::homeFilter,
                 onBrowseNavigation = { entry, nested -> model.browse(entry, nested) }, onCollectionBack = model::backCollection,
                 onQuery = model::setQuery, onSearch = model::search,
                 onPlay = model::play, onToggle = model::toggle,

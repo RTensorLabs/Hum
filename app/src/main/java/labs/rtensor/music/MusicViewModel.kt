@@ -32,6 +32,7 @@ import labs.rtensor.dsp.ListeningMode
 import labs.rtensor.music.data.AccentChoice
 import labs.rtensor.music.data.LookChoice
 import labs.rtensor.music.data.LibraryStore
+import labs.rtensor.music.data.SearchHistory
 import labs.rtensor.music.data.LocalAudioImporter
 import labs.rtensor.music.data.LocalMasters
 import labs.rtensor.music.data.PlaybackRoute
@@ -83,8 +84,10 @@ data class MusicState(
     val searched: Boolean = false,
     val searching: Boolean = false,
     val results: List<Track> = emptyList(),
+    val playlistResults: List<labs.rtensor.music.data.FeedEntry> = emptyList(),
     val suggestions: List<labs.rtensor.music.data.SearchSuggestion> = emptyList(),
     val suggestionsBusy: Boolean = false,
+    val searchHistory: List<String> = emptyList(),
     val playlistImport: labs.rtensor.music.imports.PlaylistImportState = labs.rtensor.music.imports.PlaylistImportState(),
     val playlists: List<labs.rtensor.music.data.UserPlaylist> = emptyList(),
     val playlistsBusy: Boolean = false,
@@ -197,7 +200,7 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         developerOptions = library.developerOptions,
         recommendationEngine = library.recommendationEngine,
         spotifyAccount = spotify.state.value,
-        autoplay = library.autoplay, trackHistory = library.trackHistory,
+        autoplay = library.autoplay, trackHistory = library.trackHistory, searchHistory = library.searchHistory,
         mastersSummary = if (masters.accessLost) MASTERS_ACCESS_LOST else summary(masters.entries, masters.folder != null),
         playbackSources = sources.settings.connections.value.map { it.summary() },
     ))
@@ -761,21 +764,33 @@ class MusicViewModel(application: Application) : AndroidViewModel(application) {
         val value = query.take(400)
         searchJob?.cancel()
         if (value.isBlank()) mutable.update { it.clearedSearch().copy(suggestions = emptyList(), suggestionsBusy = false) }
-        else mutable.update { it.copy(query = value, searched = false, searching = false, results = emptyList()) }
+        else mutable.update { it.copy(query = value, searched = false, searching = false, results = emptyList(), playlistResults = emptyList()) }
         searchSuggestions.query(value)
     }
+    /** Recent searches follow the listening-history switch: off means nothing is recorded. */
+    private fun rememberSearch(query: String) {
+        if (!mutable.value.trackHistory) return
+        val updated = SearchHistory.record(mutable.value.searchHistory, query)
+        library.searchHistory = updated; mutable.update { it.copy(searchHistory = updated) }
+    }
+    fun removeSearch(entry: String) {
+        val updated = SearchHistory.remove(mutable.value.searchHistory, entry)
+        library.searchHistory = updated; mutable.update { it.copy(searchHistory = updated) }
+    }
+    fun clearSearches() { library.searchHistory = emptyList(); mutable.update { it.copy(searchHistory = emptyList()) } }
     fun selectSuggestion(query: String) { setQuery(query); search() }
 
     fun search() {
         val query = mutable.value.query.trim()
         if (query.isBlank()) return
         searchSuggestions.cancel(mutable.value.query)
+        rememberSearch(query)
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
-            mutable.update { it.copy(searching = true, searched = true, error = null, errorDiagnostic = "", results = emptyList()) }
+            mutable.update { it.copy(searching = true, searched = true, error = null, errorDiagnostic = "", results = emptyList(), playlistResults = emptyList()) }
             try {
-                val results = youtube.search(query)
-                mutable.update { it.copy(results = results, searching = false) }
+                val found = youtube.searchAll(query)
+                mutable.update { it.copy(results = found.tracks, playlistResults = found.playlists, searching = false) }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 mutable.update { it.copy(searching = false, error = catalogueErrorMessage(e, CatalogueMessages.SEARCH), errorDiagnostic = (e as? SourceException)?.diagnostic.orEmpty(), errorOrigin = ErrorOrigin.SEARCH) }

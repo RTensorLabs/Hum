@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { entry, track, sections, safeError, isMusic, audioVersion } from '../src/mapping.mjs';
+import { entry, track, playlistResults, sections, safeError, isMusic, audioVersion } from '../src/mapping.mjs';
 test('provider section, entry and duplicate order survives mapping', () => {
   const a = { id: 'aaaaaaaaaaa', title: 'Zebra', artists: [{ name: 'One' }], item_type: 'song' };
   const b = { id: 'bbbbbbbbbbb', title: 'Apple', artists: [{ name: 'Two' }], item_type: 'song' };
@@ -105,4 +105,23 @@ test('music videos, podcasts and episodes never reach feeds or radio', () => {
   assert.equal(isMusic(omv), false);
   assert.equal(audioVersion({ type: 'PlaylistPanelVideoWrapper', primary: omv, counterpart: [song] }), song);
   assert.equal(isMusic({ title: 'Unlabelled', endpoint: { payload: { videoId: 'fffffffffff' } } }), true);
+});
+test('playlist search keeps only playlists, with who made them and how many songs', () => {
+  const list = (id, title, author, count) => ({ item_type: 'playlist', id, title, author: author && { name: author }, item_count: count,
+    thumbnails: [{ url: 'https://test/art', width: 226, height: 226 }], endpoint: { payload: { browseId: 'VL' + id } } });
+  const shelf = { contents: [list('PL111111111111', 'Tamil Hits', 'Hum Radio', '48 songs'), { item_type: 'album', id: 'MPREb_x', title: 'An album' },
+    { id: 'aaaaaaaaaaa', title: 'A song', item_type: 'song' }, list('PL111111111111', 'Tamil Hits again', 'Hum Radio', '48 songs')] };
+  const found = playlistResults([shelf, list('PL222222222222', 'Plain', null, null)]);
+  assert.deepEqual(found.map(p => p.browseId), ['VLPL111111111111', 'VLPL222222222222']);
+  assert.equal(found[0].kind, 'playlist');
+  assert.equal(found[0].title, 'Tamil Hits');
+  assert.equal(found[0].subtitle, 'Hum Radio · 48 songs');
+  assert.equal(found[0].artwork, 'https://test/art');
+  assert.equal(found[1].subtitle, '');
+});
+test('playlist search tolerates missing results and caps the list', () => {
+  assert.deepEqual(playlistResults(undefined), []);
+  assert.deepEqual(playlistResults([null, {}]), []);
+  const many = Array.from({ length: 30 }, (_, i) => ({ item_type: 'playlist', id: 'PL' + String(i).padStart(12, '0'), title: 'P' + i }));
+  assert.equal(playlistResults(many).length, 12);
 });

@@ -68,6 +68,10 @@ class LibraryStore(context: Context) {
     var trackHistory: Boolean
         get() = prefs.getBoolean("track_history", true)
         set(value) { prefs.edit().putBoolean("track_history", value).apply() }
+    /** Recent searches, newest first. */
+    var searchHistory: List<String>
+        get() = runCatching { JSONArray(prefs.getString("search_history", "[]")).let { a -> (0 until a.length()).map(a::getString) } }.getOrDefault(emptyList())
+        set(value) { prefs.edit().putString("search_history", JSONArray(value).toString()).apply() }
     var processedAudio: Boolean
         get() = prefs.getBoolean("processed_audio", true)
         set(value) { prefs.edit().putBoolean("processed_audio", value).apply() }

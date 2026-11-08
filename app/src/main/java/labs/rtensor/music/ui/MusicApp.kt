@@ -407,7 +407,7 @@ fun MusicApp(
     onConnectSpotify: () -> Unit = {}, onDisconnectSpotify: () -> Unit = {},
     onMoreCollection: () -> Unit = {},
     songActions: SongActionCallbacks = SongActionCallbacks(),
-    onSuggestion: (String) -> Unit = {},
+    onSuggestion: (String) -> Unit = {}, onRemoveSearch: (String) -> Unit = {}, onClearSearches: () -> Unit = {},
     onHomeFilter: (String?) -> Unit = {},
     onBrowseNavigation: (FeedEntry, Boolean) -> Unit = { entry, _ -> onBrowse(entry) },
     onCollectionBack: () -> Boolean = { false },
@@ -468,7 +468,8 @@ fun MusicApp(
         }
     }
     BackHandler(page != "home" || state.query.isNotEmpty() || searchOpen) {
-        if (searchOpen) { searchOpen = false; if (state.query.isNotEmpty()) onQuery(""); keyboard?.hide() }
+        // A playlist opened from the search results goes back to those results: only a root page closes the search.
+        if (searchOpen && page in rootPages) { searchOpen = false; if (state.query.isNotEmpty()) onQuery(""); keyboard?.hide() }
         else if (page in rootPages && state.query.isNotEmpty()) onQuery("") else goBack()
     }
     // Keep the last track while the mini player animates away.
@@ -580,7 +581,7 @@ fun MusicApp(
                     ) { target ->
                         RetainedBrowserScreen(browserStates, target) {
                         when (target) {
-                            "search" -> if (!state.searched) SearchSuggestionList(state, onSuggestion, { play(it, listOf(it)) }) else SearchResults(state, ::play, onSave)
+                            "search" -> if (!state.searched) SearchSuggestionList(state, onSuggestion, { play(it, listOf(it)) }, onRemoveSearch, onClearSearches) else SearchResults(state, ::play, onSave, ::openEntry)
                             "explore" -> ExploreScreen(state, exploreContent, exploreTab, { exploreTab = it }, ::openEntry,
                                 onRefreshFeed, onRefreshExplore, exploreScroll,
                                 active = page == "explore" && !showResults) {
@@ -1524,18 +1525,40 @@ private fun SearchBar(state: MusicState, onQuery: (String) -> Unit, onSearch: ()
     )
 }
 
+/** Playlists that matched the search, as a row of covers that opens like a playlist on Home. */
 @Composable
-private fun SearchResults(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onSave: (Track) -> Unit) {
+private fun PlaylistResults(playlists: List<FeedEntry>, onEntry: (FeedEntry) -> Unit) {
+    Column(Modifier.fillMaxWidth().padding(bottom = 14.dp).semantics { contentDescription = "Playlists" }) {
+        Text("Playlists", Modifier.semantics { heading() }, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+        Spacer(Modifier.height(10.dp))
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            itemsIndexed(playlists, key = { i, entry -> "$i:${entry.id}" }) { _, entry ->
+                Column(Modifier.width(140.dp).clip(LocalLook.current.art).clickable(role = Role.Button) { onEntry(entry) }
+                    .semantics { contentDescription = "Playlist ${entry.title}" + if (entry.subtitle.isNotBlank()) ", ${entry.subtitle}" else "" }) {
+                    Artwork(Track(entry.id, entry.title, entry.subtitle, "", entry.artwork), Modifier.size(140.dp).clip(LocalLook.current.art), size = 140.dp)
+                    Text(entry.title, Modifier.padding(top = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                    if (entry.subtitle.isNotBlank()) Text(entry.subtitle, Modifier.padding(top = 3.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchResults(state: MusicState, onPlay: (Track, List<Track>) -> Unit, onSave: (Track) -> Unit, onEntry: (FeedEntry) -> Unit) {
     Column(Modifier.fillMaxSize().padding(horizontal = 24.dp, vertical = 12.dp)) {
         when {
             state.searching -> {
                 LoadingLine(true, state.reducedMotion)
                 Text("Looking on YouTube…", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 16.dp))
             }
-            state.results.isNotEmpty() -> {
-                Caption(LocalLook.current.let { if (it.room) "${state.results.size} ${if (state.results.size == 1) "result" else "results"}" else "${state.results.size} RESULTS" })
+            state.results.isNotEmpty() || state.playlistResults.isNotEmpty() -> {
+                val count = state.results.size + state.playlistResults.size
+                Caption(LocalLook.current.let { if (it.room) "$count ${if (count == 1) "result" else "results"}" else "$count RESULTS" })
                 Spacer(Modifier.height(10.dp))
                 LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(bottom = 24.dp)) {
+                    if (state.playlistResults.isNotEmpty()) item(key = "playlist-results") { PlaylistResults(state.playlistResults, onEntry) }
                     itemsIndexed(state.results, key = { index, track -> "$index:${track.id}" }) { _, track ->
                         TrackRow(track, state.saved.any { it.libraryKey() == track.libraryKey() }, state.current?.libraryKey() == track.libraryKey(), { onPlay(track, listOf(track)) }, { onSave(track) }, motionModifier())
                     }

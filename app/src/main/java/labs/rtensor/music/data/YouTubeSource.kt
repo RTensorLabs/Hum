@@ -12,7 +12,13 @@ class YouTubeSource(context: Context) {
         val data = runtime.call("suggestions", JSONObject().put("query", query)).getJSONArray("suggestions")
         return (0 until data.length()).map { i -> data.getJSONObject(i).let { SearchSuggestion(it.getString("text"), it.optJSONObject("track")?.let(Track::fromJson)) } }
     }
-    suspend fun search(query: String): List<Track> = tracks(runtime.call("search", JSONObject().put("query", query)))
+    suspend fun search(query: String): List<Track> = searchAll(query).tracks
+    /** Songs and the playlists that match the same words; playlists are empty for a pasted link. */
+    suspend fun searchAll(query: String): SearchResults {
+        val data = runtime.call("search", JSONObject().put("query", query))
+        val playlists = data.optJSONArray("playlists")
+        return SearchResults(tracks(data), playlists?.let { list -> (0 until list.length()).map { FeedEntry.parse(list.getJSONObject(it)) } }.orEmpty())
+    }
     suspend fun collection(entry: FeedEntry): List<Track> = tracks(runtime.call("collection", JSONObject().put("id", entry.browseId).put("kind", entry.kind)))
     suspend fun home(more: Boolean = false, filter: String? = null): HomeFeed {
         return feed(runtime.call("home", JSONObject().put("more", more).put("filter", filter)))

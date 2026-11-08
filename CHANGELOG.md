@@ -2,6 +2,20 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.13 (versionCode 57)
+
+### Added
+- Search finds playlists. A row of playlist covers shows above the songs; tap one to open it like a playlist on Home.
+- Recent searches. The search box lists what you searched for, newest first, like YouTube. Tap one to search again, tap the cross to remove it, or Clear all. While you type, matching recent searches come first. They are kept on this device only and stay off when Keep listening history is off.
+
+### Fixed
+- Going back from a playlist opened in search returns to the search results instead of closing the search.
+
+### Known
+- A playlist in the search results shows its author, not its song count: YouTube does not send the count with search results.
+- The background changes in one step when you change song or accent; it does not fade.
+- Connecting YouTube Music after choosing a Google account still opens Google’s sign-in page: Google does not let other apps reuse the phone’s Google login.
+
 ## 0.4.0-beta.12 (versionCode 56)
 
 ### Fixed
