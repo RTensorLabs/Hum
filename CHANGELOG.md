@@ -2,6 +2,20 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.14 (versionCode 58)
+
+### Added
+- Hum now installs on Android 9 and newer (it needed Android 11 before).
+
+### Fixed
+- On a phone whose Android System WebView is too old for the YouTube engine, the message now says so and names the version, instead of a general failure. Update the WebView in Google Play.
+
+### Known
+- Apple Music account playback is experimental and was built for Android 11 and newer; on Android 9 or 10 it may not start.
+- A playlist in the search results shows its author, not its song count: YouTube does not send the count with search results.
+- The background changes in one step when you change song or accent; it does not fade.
+- Connecting YouTube Music after choosing a Google account still opens Google’s sign-in page: Google does not let other apps reuse the phone’s Google login.
+
 ## 0.4.0-beta.13 (versionCode 57)
 
 ### Added

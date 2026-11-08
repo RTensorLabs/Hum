@@ -5,7 +5,7 @@ Hum (package `labs.rtensor.music`) is a native Android player from RTensorLabs, 
 > **Find what you enjoy, then play the best available matching recording in one app.**
 
 Hum has one look: Berry accents, the Character typeface, a pinned player, a floating
-navigation pill and top-tab Settings. Android 11+ is the supported baseline.
+navigation pill and top-tab Settings. Android 9+ is the supported baseline.
 
 ### New in 0.4.0 beta 6
 
@@ -368,8 +368,8 @@ source commit, APK checksums and packaging evidence.
 
 ## Build
 
-Use JDK 17+, Android SDK 35/build tools 35.0.0. Android 11+ (API 30) and a recent
-Android System WebView are required. Support is device-independent; integrated
+Use JDK 17+, Android SDK 35/build tools 35.0.0. Android 9+ (API 28) and a recent
+Android System WebView (Chrome 100 or newer) are required. Support is device-independent; integrated
 native builds currently include ARM64 and x86-64. Decoder and output capabilities
 are checked at runtime rather than assumed from a phone brand. The app builds in
 Android Studio using the committed client bundles:

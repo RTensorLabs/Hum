@@ -22,6 +22,15 @@ import java.util.concurrent.atomic.AtomicLong
 
 data class PlaybackProblem(val videoId: String, val message: String, val code: String, val diagnostic: String)
 
+/** The engine needs a current Android System WebView; older phones keep an old one until Play updates it. */
+private fun engineStartMessage(): String {
+    val version = runCatching { WebView.getCurrentWebViewPackage()?.versionName }.getOrNull()
+    val major = version?.substringBefore('.')?.toIntOrNull()
+    return if (major != null && major < YouTubeRuntime.MIN_WEBVIEW)
+        "The YouTube engine needs a newer Android System WebView (this phone has version $major). Update it in Google Play, then reopen Hum."
+    else "The YouTube engine could not start. Update Android System WebView and reopen Hum."
+}
+
 /** Bundled, offline JS client. Remote pages never receive the Android bridge. */
 class YouTubeRuntime private constructor(context: Context) {
     private val app = context.applicationContext
@@ -50,7 +59,7 @@ class YouTubeRuntime private constructor(context: Context) {
         if (method == "resolve" && !args.optBoolean("background")) mutableProblem.value = null
         withContext(Dispatchers.Main.immediate) { ensureView() }
         try { withTimeout(15_000) { ready.await() } }
-        catch (_: TimeoutCancellationException) { throw SourceException("ENGINE_START", "The YouTube engine could not start. Update Android System WebView and reopen Music.") }
+        catch (_: TimeoutCancellationException) { throw SourceException("ENGINE_START", engineStartMessage()) }
         val id = sequence.incrementAndGet().toString()
         val result = CompletableDeferred<JSONObject>(); pending[id] = result
         try {
@@ -212,6 +221,8 @@ class YouTubeRuntime private constructor(context: Context) {
 
     companion object {
         private const val BASE = "https://appassets.androidplatform.net/assets/engine/"
+        /** The bundled engine is built for Chrome 100 and newer. */
+        const val MIN_WEBVIEW = 100
         private const val MAX_RESPONSE = 8 * 1024 * 1024
         @Volatile private var instance: YouTubeRuntime? = null
         fun get(context: Context) = instance ?: synchronized(this) { instance ?: YouTubeRuntime(context).also { instance = it } }
