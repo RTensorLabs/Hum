@@ -78,6 +78,38 @@ are diagnosed; a native SABR transport remains future work. Rights, age, private
 video and subscription restrictions remain provider decisions. Google can refuse
 an embedded login or device verification; those flows have no fabricated fallback.
 
+### Audio stream selection
+
+Rendition and quality are separate steps. First the rendition: the original audio (or
+the listener's language), standard rather than dynamic-range-compressed or
+volume-boosted; those variants and other dubs stay as fallbacks, so a higher bitrate
+never switches language. Audio description is commentary, not a version of the track:
+it is chosen only when explicitly requested (`audioDescription`) and is never a fallback
+for the normal track. If a recording offers only a description, resolution fails with
+that reason rather than playing commentary. Then the best encoding of that rendition:
+YouTube's own `audio_quality` tier first; within one codec the higher average (else
+peak) bitrate; between codecs of the same tier only a stated tie-break (Opus, then AAC),
+because bitrates are not comparable across codecs and no multiplier claims to measure
+sound quality. There is no blanket AAC-over-Opus preference.
+
+Multichannel is kept only when its speaker layout is identifiable: mono, stereo, 5.1 or
+7.1, with no spatial-audio marker. Ambisonic streams (`spatial_audio_type`, itag 338)
+carry sound-field components rather than speaker feeds, and any other channel count has
+no standard layout; neither is ever selected, and a compatible stream is used instead
+(or resolution fails if nothing else exists). The player separately refuses to guess:
+if the decoder does not report which speaker each channel is, the original plays
+unprocessed rather than through the surround downmix. Whether YouTube serves AC-3,
+E-AC-3 or 5.1 audio for a given recording is not established here; that path is
+guarded, not verified against live traffic.
+
+Signed in, the account's routes (YouTube Music, then web, then the attested web path when
+YouTube asks for it) are tried before the guest routes, which remain the fallback; signed
+out, guest routes come first. The chosen itag, byte length and MIME type are pinned across
+seeks and URL refreshes. The app does not display the codec or bitrate. This selects the
+best of what YouTube offers; it does not make the audio lossless, does not establish which
+stream sounds best, and a higher tier from a signed-in route (for example Premium's
+256 kbit/s AAC) is not claimed until a real signed-in stream shows it.
+
 The workspace blocks live YouTube traffic. Fixture tests cover the exact bundles,
 account protocol, decoder, probes and proof wiring. Real sign-in, accepted live
 attestation and an actual stream still require a phone check; they are not claimed
