@@ -2,6 +2,19 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.15 (versionCode 59)
+
+### Fixed
+- Hum now installs on 32-bit phones such as the Galaxy J8. Before, Android refused the install because the app held only 64-bit code. Playback, the sound renderer and the E-AC-3 / ALAC decoder are now built for 32-bit ARM as well.
+
+### Known
+- Apple Music account playback is not available on 32-bit phones; Hum says so instead of failing.
+- Apple Music account playback is experimental and was built for Android 11 and newer; on Android 9 or 10 it may not start.
+- On a 32-bit phone the 32-bit build has not been run on a real device yet; please report anything that fails.
+- A playlist in the search results shows its author, not its song count: YouTube does not send the count with search results.
+- The background changes in one step when you change song or accent; it does not fade.
+- Connecting YouTube Music after choosing a Google account still opens Google’s sign-in page: Google does not let other apps reuse the phone’s Google login.
+
 ## 0.4.0-beta.14 (versionCode 58)
 
 ### Added

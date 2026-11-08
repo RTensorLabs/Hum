@@ -62,7 +62,7 @@ providers.gradleProperty("rtensorDspJniDir").orNull?.let { directory ->
             check(libraries.isNotEmpty()) { "The private DSP directory contains no compiled libraries" }
             libraries.forEach { library ->
                 val relative = library.relativeTo(root).invariantSeparatorsPath
-                check(relative in listOf("arm64-v8a/librtensor_downmix.so", "x86_64/librtensor_downmix.so")) {
+                check(relative in listOf("arm64-v8a/librtensor_downmix.so", "armeabi-v7a/librtensor_downmix.so", "x86_64/librtensor_downmix.so")) {
                     "Unexpected native library in the private DSP directory: $relative"
                 }
             }

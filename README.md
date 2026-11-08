@@ -370,7 +370,7 @@ source commit, APK checksums and packaging evidence.
 
 Use JDK 17+, Android SDK 35/build tools 35.0.0. Android 9+ (API 28) and a recent
 Android System WebView (Chrome 100 or newer) are required. Support is device-independent; integrated
-native builds currently include ARM64 and x86-64. Decoder and output capabilities
+native builds currently include ARM64, 32-bit ARM and x86-64. Decoder and output capabilities
 are checked at runtime rather than assumed from a phone brand. The app builds in
 Android Studio using the committed client bundles:
 

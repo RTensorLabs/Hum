@@ -41,15 +41,14 @@ android {
         applicationId = "labs.rtensor.music"
         minSdk = 28
         targetSdk = 35
-        versionCode = 58
-        versionName = "0.4.0-beta.14"
+        versionCode = 59
+        versionName = "0.4.0-beta.15"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "APPLE_NATIVE_INCLUDED", providers.gradleProperty("rtensorAppleJniDir").isPresent.toString())
         buildConfigField("boolean", "APPLE_RUNTIME_INCLUDED", providers.gradleProperty("rtensorAppleRuntimeAssetsDir").isPresent.toString())
-        // An integrated build must not install as 32-bit using a dependency's
-        // unrelated JNI library when the renderer is supplied only for 64-bit.
+        // An integrated build ships the renderer for every ABI it lists, so no ABI can fall back to a dependency's unrelated JNI library.
         if (providers.gradleProperty("rtensorDspJniDir").isPresent) {
-            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+            ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
         }
     }
     buildFeatures { compose = true; buildConfig = true }
@@ -194,7 +193,7 @@ tasks.register("verifyOtaDspBundle") {
             ?: error("Music OTA builds require -PrtensorDspJniDir pointing to the private Android libraries")
         val artifact = verificationApk.get().asFile
         ZipFile(artifact).use { zip ->
-            listOf("arm64-v8a", "x86_64").forEach { abi ->
+            listOf("arm64-v8a", "armeabi-v7a", "x86_64").forEach { abi ->
                 val expected = file(directory).resolve("$abi/librtensor_downmix.so")
                 check(expected.isFile) { "Missing private DSP for $abi" }
                 val entry = zip.getEntry("lib/$abi/librtensor_downmix.so")
@@ -205,7 +204,7 @@ tasks.register("verifyOtaDspBundle") {
                 }
             }
         }
-        logger.lifecycle("Verified: Music OTA APK bundles the supplied ARM64 and x86-64 DSP libraries")
+        logger.lifecycle("Verified: Music OTA APK bundles the supplied ARM64, ARM32 and x86-64 DSP libraries")
     }
 }
 
@@ -218,7 +217,7 @@ tasks.register("verifyEac3DecoderBundle") {
             ?: error("Pass -PrtensorFfmpegJniDir for the E-AC-3 prototype")
         val artifact = verificationApk.get().asFile
         ZipFile(artifact).use { zip ->
-            listOf("arm64-v8a", "x86_64").forEach { abi ->
+            listOf("arm64-v8a", "armeabi-v7a", "x86_64").forEach { abi ->
                 val root = file(directory).resolve(abi)
                 val build = JsonSlurper().parse(root.resolve("build-info.json")) as Map<*, *>
                 check(build["license"] == "LGPL-2.1-or-later" && build["ffmpeg"] == "n6.1.6")

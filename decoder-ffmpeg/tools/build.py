@@ -8,7 +8,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--archive", type=pathlib.Path, required=True)
     p.add_argument("--output", type=pathlib.Path, required=True)
-    p.add_argument("--target", choices=["host", "arm64-v8a", "x86_64"], required=True)
+    p.add_argument("--target", choices=["host", "arm64-v8a", "armeabi-v7a", "x86_64"], required=True)
     p.add_argument("--ndk", type=pathlib.Path)
     p.add_argument("--jdk", type=pathlib.Path)
     p.add_argument("--jni-only", action="store_true", help="Rebuild adapter against the already verified local FFmpeg build")
@@ -40,7 +40,10 @@ def main():
     else:
         assert a.ndk, "Pass --ndk for Android"
         tool = a.ndk / "toolchains/llvm/prebuilt/linux-x86_64/bin"
-        arch, triple = ("aarch64", "aarch64-linux-android") if a.target == "arm64-v8a" else ("x86_64", "x86_64-linux-android")
+        arch, triple = {"arm64-v8a": ("aarch64", "aarch64-linux-android"), "armeabi-v7a": ("arm", "armv7a-linux-androideabi"),
+                        "x86_64": ("x86_64", "x86_64-linux-android")}[a.target]
+        # 32-bit phones (for example Galaxy J8): plain C, because hand-written ARM assembly needs text relocations in a shared library.
+        if a.target == "armeabi-v7a": options += ["--cpu=armv7-a", "--disable-asm", "--disable-vulkan"]
         compiler = str(tool / (triple + "26-clang++"))
         options += ["--target-os=android", "--arch=" + arch, "--enable-cross-compile",
             "--cc=" + str(tool / (triple + "26-clang")), "--cxx=" + compiler,
