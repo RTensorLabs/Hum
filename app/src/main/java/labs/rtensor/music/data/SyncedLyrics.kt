@@ -39,7 +39,7 @@ class SyncedLyricsSource(
 
     private fun get(path: String, query: (okhttp3.HttpUrl.Builder) -> Unit): Any? {
         val url = "$base/$path".toHttpUrl().newBuilder().also(query).build()
-        val request = Request.Builder().url(url).header("User-Agent", "Hum (https://github.com/RTensorLabs/music-app)").build()
+        val request = Request.Builder().url(url).header("User-Agent", "Hum (https://github.com/RTensorLabs/Hum)").build()
         return try {
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) return null

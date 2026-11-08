@@ -97,11 +97,13 @@ class GitHubUpdater(private val context: Context) {
     }
 
     companion object {
-        const val REPOSITORY = "RTensorLabs/music-app"
-        private const val PREFIX = "https://github.com/$REPOSITORY/releases/download/"
+        const val REPOSITORY = "RTensorLabs/Hum"
+        // The repository was renamed from music-app to Hum, and GitHub now reports asset links under the new name.
+        // Both names are ours; a link under either is a release asset, anything else is refused.
+        private val PREFIXES = listOf(REPOSITORY, "RTensorLabs/music-app").map { "https://github.com/$it/releases/download/" }
         fun isReleaseAsset(value: String): Boolean = runCatching {
             val uri = java.net.URI(value)
-            value.startsWith(PREFIX) && uri.scheme == "https" && uri.host == "github.com" && uri.userInfo == null && uri.port == -1 && uri.query == null && uri.fragment == null
+            PREFIXES.any { value.startsWith(it) } && uri.scheme == "https" && uri.host == "github.com" && uri.userInfo == null && uri.port == -1 && uri.query == null && uri.fragment == null
         }.getOrDefault(false)
         fun checksumFor(text: String, name: String): String? = text.lineSequence().mapNotNull {
             Regex("^([A-Fa-f0-9]{64})\\s+\\*?([A-Za-z0-9._-]+)$").matchEntire(it.trim())

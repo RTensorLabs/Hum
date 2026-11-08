@@ -112,6 +112,22 @@ class AccountAndUpdateTest {
         assertFalse(GitHubUpdater.isReleaseAsset("https://github.com/another/app/releases/download/v0.3.0/music-debug.apk"))
         assertFalse(GitHubUpdater.isReleaseAsset("https://github.com@attacker.test/RTensorLabs/music-app/releases/download/v0.3.0/a.apk"))
     }
+    @Test fun releasesUnderTheRenamedHumRepositoryAreFoundAndLookalikesAreRefused() {
+        val tag = "v0.4.0-beta.12"
+        fun asset(name: String, repo: String) = JSONObject().put("name", name).put("size", 100)
+            .put("browser_download_url", "https://github.com/$repo/releases/download/$tag/$name")
+        fun release(repo: String) = JSONObject().put("tag_name", tag).put("draft", false)
+            .put("assets", JSONArray().put(asset("Hum.apk", repo)).put(asset("SHA256SUMS", repo)))
+        // GitHub reports links under the current name, Hum, so a beta 9 to 11 phone must still find them.
+        val found = GitHubUpdater.selectRelease(JSONArray().put(release("RTensorLabs/Hum")), "0.4.0-beta.9")
+        assertEquals("0.4.0-beta.12", found?.version)
+        assertEquals("https://github.com/RTensorLabs/Hum/releases/download/$tag/Hum.apk", found?.apkUrl)
+        assertNotNull(GitHubUpdater.selectRelease(JSONArray().put(release("RTensorLabs/music-app")), "0.4.0-beta.9"))
+        assertNull(GitHubUpdater.selectRelease(JSONArray().put(release("RTensorLabs/Hum-evil")), "0.4.0-beta.9"))
+        assertNull(GitHubUpdater.selectRelease(JSONArray().put(release("attacker/Hum")), "0.4.0-beta.9"))
+        assertFalse(GitHubUpdater.isReleaseAsset("https://github.com@attacker.test/RTensorLabs/Hum/releases/download/$tag/Hum.apk"))
+        assertFalse(GitHubUpdater.isReleaseAsset("https://github.com/RTensorLabs/Hum/releases/download/$tag/Hum.apk?x=1"))
+    }
     @Test fun updateSelectionIgnoresDraftsAndUsesNumericVersionOrder() {
         fun release(tag: String, draft: Boolean = false): JSONObject {
             fun asset(name: String) = JSONObject().put("name", name).put("size", 100)

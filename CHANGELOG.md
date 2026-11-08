@@ -2,6 +2,16 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.12 (versionCode 56)
+
+### Fixed
+- Updates are found again. The repository was renamed to Hum, and GitHub then reported every release under the new name, which the updater refused as not ours. Beta 9 to 11 never showed an update because of this; install beta 12 once by hand and later releases arrive in the app again.
+
+### Known
+- The background changes in one step when you change song or accent; it does not fade.
+- YouTube serves the best stereo stream (Opus, about 140 kbps) for the songs checked; no higher tier or surround audio was offered on the accounts tried.
+- Connecting YouTube Music after choosing a Google account still opens Google’s sign-in page: Google does not let other apps reuse the phone’s Google login.
+
 ## 0.4.0-beta.11 (versionCode 55)
 
 ### Fixed
