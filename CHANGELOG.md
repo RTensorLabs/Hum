@@ -2,6 +2,20 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.16 (versionCode 60)
+
+### Fixed
+- Songs you play in Hum show up in your YouTube Music history and "Listen again" again. YouTube changed what it requires before it accepts a play, so Hum's reports were being refused without any message.
+- Synced lyrics are found for more songs, such as Monica. A failed lookup is no longer remembered as "no synced lyrics": Hum retries, and also searches by the song's main title and lead artist when the full title doesn't match.
+- Lyrics keep following the song after you scroll them. Before, they could stop following for the rest of the song.
+
+### Known
+- Apple Music account playback is not available on 32-bit phones; Hum says so instead of failing.
+- Apple Music account playback is experimental and was built for Android 11 and newer; on Android 9 or 10 it may not start.
+- A playlist in the search results shows its author, not its song count: YouTube does not send the count with search results.
+- The background changes in one step when you change song or accent; it does not fade.
+- Connecting YouTube Music after choosing a Google account still opens Google’s sign-in page: Google does not let other apps reuse the phone’s Google login.
+
 ## 0.4.0-beta.15 (versionCode 59)
 
 ### Fixed

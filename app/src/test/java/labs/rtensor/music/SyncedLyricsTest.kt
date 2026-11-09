@@ -3,6 +3,9 @@ package labs.rtensor.music
 import labs.rtensor.music.data.LyricLine
 import labs.rtensor.music.data.SyncedLyricsSource
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import labs.rtensor.music.data.Source
+import labs.rtensor.music.data.Track
 import org.junit.Test
 
 class SyncedLyricsTest {
@@ -28,5 +31,21 @@ class SyncedLyricsTest {
     @Test fun `titles lose video and lyric suffixes`() {
         assertEquals("Song", SyncedLyricsSource.cleanTitle("Song (Official Video) [4K]"))
         assertEquals("Song (feat. Other)", SyncedLyricsSource.cleanTitle("Song (feat. Other)"))
+    }
+
+    @Test fun `the looser search uses the core title and the lead artist`() {
+        assertEquals("Monica", SyncedLyricsSource.coreTitle("Monica (From \"Coolie\") (Tamil)"))
+        assertEquals("Espresso", SyncedLyricsSource.coreTitle("Espresso"))
+        assertEquals("(Untitled)", SyncedLyricsSource.coreTitle("(Untitled)"))
+        assertEquals("Sublahshini", SyncedLyricsSource.leadArtist("Sublahshini & Vishnu Edavan"))
+        assertEquals("Vishnu Edavan", SyncedLyricsSource.leadArtist("Vishnu Edavan, Anirudh Ravichander"))
+        assertEquals("Alex", SyncedLyricsSource.leadArtist("Alex feat. Sam"))
+        assertEquals("Max", SyncedLyricsSource.leadArtist("Max"))
+    }
+
+    @Test fun `an unreachable library is an error, not a song without lyrics`() {
+        val source = SyncedLyricsSource(base = "http://127.0.0.1:9/api")
+        val track = Track(id = "t", title = "Song", artist = "Someone", url = "", durationMs = 200_000, source = Source.YOUTUBE)
+        assertThrows(java.io.IOException::class.java) { kotlinx.coroutines.runBlocking { source.find(track) } }
     }
 }

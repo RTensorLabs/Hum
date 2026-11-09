@@ -47,6 +47,9 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -107,26 +110,22 @@ private fun SyncedLyricsView(lines: List<LyricLine>, positions: StateFlow<Long>?
     // The current line rests a little above the middle, so the next lines show below it.
     val topPadding = height * .20f
     val bottomPadding = (height - topPadding - 40.dp).coerceAtLeast(0.dp)
-    val current by rememberUpdatedState(active)
+    // Only the reader's own finger (a drag, or the fling after it) pauses the following; the list's own glides never do.
     var programmatic by remember { mutableStateOf(false) }
     var touchedAt by remember { mutableLongStateOf(0L) }
-    suspend fun follow() {
-        val index = current
-        if (index < 0) return
-        programmatic = true
-        try { if (reduced) list.scrollToItem(index) else list.animateScrollToItem(index) }
-        finally { programmatic = false }
-    }
-    // The list follows each new line, unless the reader is looking around: then it waits, and the
-    // idle effect below brings the current line back, so it never stays stranded on an old line.
-    LaunchedEffect(active, lines) {
-        if (list.isScrollInProgress || System.currentTimeMillis() - touchedAt < FollowPauseMs) return@LaunchedEffect
-        follow()
-    }
-    LaunchedEffect(list) {
-        snapshotFlow { list.isScrollInProgress }.collectLatest { moving ->
-            if (moving) { if (!programmatic) touchedAt = System.currentTimeMillis() }
-            else if (!programmatic && touchedAt != 0L) { delay(FollowPauseMs); follow() }
+    val dragged by list.interactionSource.collectIsDraggedAsState()
+    // One loop decides where the list should be: on each new line, and whenever the reader lets go, it
+    // waits out the pause and glides back to the current line, so it never stays stranded on an old line.
+    LaunchedEffect(list, lines) {
+        snapshotFlow { Triple(active, dragged, list.isScrollInProgress && !programmatic) }.collectLatest { (index, held, coasting) ->
+            if (held || coasting) { touchedAt = System.currentTimeMillis(); return@collectLatest }
+            val wait = FollowPauseMs - (System.currentTimeMillis() - touchedAt)
+            if (wait > 0) delay(wait)
+            if (index < 0) return@collectLatest
+            programmatic = true
+            try { if (reduced) list.scrollToItem(index) else list.animateScrollToItem(index) }
+            catch (e: CancellationException) { if (!currentCoroutineContext().isActive) throw e } // a finger took over the glide
+            finally { programmatic = false }
         }
     }
     LazyColumn(Modifier.fillMaxWidth().height(height), state = list, contentPadding = PaddingValues(top = topPadding, bottom = bottomPadding)) {
@@ -173,7 +172,11 @@ internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, red
     var synced by remember(track.id) { mutableStateOf<List<LyricLine>>(emptyList()) }
     LaunchedEffect(track.id, open) {
         if (!open || synced.isNotEmpty()) return@LaunchedEffect
-        synced = try { loadSynced(track) } catch (e: CancellationException) { throw e } catch (_: Exception) { emptyList() }
+        // A lookup that could not reach the library (weak signal, a VPN) is tried again a few times, and again on the next open.
+        for (wait in longArrayOf(0, 3_000, 10_000, 30_000)) {
+            delay(wait)
+            try { synced = loadSynced(track); break } catch (e: CancellationException) { throw e } catch (_: Exception) {}
+        }
     }
     val scheme = MaterialTheme.colorScheme
     // Original or English (romanised) is one choice for every song, kept across sessions and changeable here at any time.

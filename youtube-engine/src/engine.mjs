@@ -527,7 +527,13 @@ globalThis.musicCall = async (id, method, args) => {
         if (!api.session.logged_in) { result = { reported: false }; break; }
         let entry = playbackReports.get(args.videoId);
         if (!entry) {
-          entry = { info: await api.getBasicInfo(args.videoId, { client: 'YTMUSIC' }), started: false };
+          // YouTube's web /player answers "Video unavailable", without the tracking URLs, unless the request
+          // carries the player's signature timestamp, so the player is loaded first.
+          await ensurePlayer(api);
+          const info = await api.getBasicInfo(args.videoId, { client: 'YTMUSIC' });
+          if (info.playability_status?.status !== 'OK')
+            throw failure('HISTORY', 'YouTube Music did not accept this play for history.', String(info.playability_status?.status || '') + ' ' + String(info.playability_status?.reason || ''));
+          entry = { info, started: false };
           playbackReports.set(args.videoId, entry);
           if (playbackReports.size > 8) playbackReports.delete(playbackReports.keys().next().value);
         }

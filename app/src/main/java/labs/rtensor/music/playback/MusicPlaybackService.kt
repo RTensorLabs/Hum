@@ -175,7 +175,7 @@ class MusicPlaybackService : MediaLibraryService() {
             if (!historyStore.trackHistory) return
             preloadScope.launch {
                 try { youtube.reportPlayback(videoId, seconds) }
-                catch (e: CancellationException) { throw e } catch (_: Exception) { /* Optional; playback is unaffected. */ }
+                catch (e: CancellationException) { throw e } catch (e: Exception) { android.util.Log.w("Hum", "YouTube history report failed", e) /* Optional; playback is unaffected. */ }
             }
         }
         fun reportProgress(item: MediaItem?, positionMs: Long) {
