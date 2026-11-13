@@ -35,7 +35,7 @@ class RoomPlayerUiTest {
         compose.setContent { MusicApp(player(AudioProcessingState()), initialPage = "now") }
         compose.onNodeWithText("Afterimage").assert(SemanticsMatcher.keyIsDefined(SemanticsProperties.Heading)).assertIsDisplayed()
         compose.onNodeWithText("Serein").assertIsDisplayed()
-        compose.onNodeWithContentDescription("Audio format AAC · 48 kHz").assertIsDisplayed()
+        compose.onNodeWithContentDescription("AAC · 48 kHz", substring = true).assertIsDisplayed()
         compose.onNodeWithContentDescription("Pause").assertIsDisplayed()
     }
 

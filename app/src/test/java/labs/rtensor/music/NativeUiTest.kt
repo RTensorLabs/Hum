@@ -198,7 +198,7 @@ class NativeUiTest {
         val profile = labs.rtensor.music.auth.GoogleProfile("fixture-subject", "listener@example.test", "Fixture listener")
         compose.setContent { MusicApp(MusicState(look = labs.rtensor.music.data.LookChoice.ROOM, googleProfile = profile, account = AccountState(connected = true, name = "Listener"), reducedMotion = true, theme = "light"),
             initialPage = "settings", onGoogleSignOut = { signedOut = true }, onDisconnect = { youtubeOnly = true }) }
-        compose.onNodeWithText("Connected · Listener").assertIsDisplayed()
+        compose.onNodeWithText("Connected · Listener").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Sign out").performScrollTo().performClick()
         org.junit.Assert.assertTrue(signedOut)
         org.junit.Assert.assertFalse(youtubeOnly)

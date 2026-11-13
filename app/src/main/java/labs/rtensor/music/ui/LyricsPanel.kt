@@ -151,13 +151,10 @@ private sealed interface LyricsLoad {
  * it fetches the words once per song. Songs from other sources have none, so the row is not shown.
  */
 @Composable
-internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, reduced: Boolean, modifier: Modifier = Modifier,
-    positions: StateFlow<Long>? = null, onSeek: (Long) -> Unit = {}, onOpenChange: (Boolean) -> Unit = {}) {
+internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, reduced: Boolean, open: Boolean, onOpenChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier, positions: StateFlow<Long>? = null, onSeek: (Long) -> Unit = {}, header: Boolean = true) {
     if (track.source != Source.YOUTUBE) return
-    var open by rememberSaveable { mutableStateOf(false) }
-    // The screen is told when the lyrics open or close, so it can give them room (smaller cover, scrolled into view).
-    val openChanged by rememberUpdatedState(onOpenChange)
-    LaunchedEffect(open) { openChanged(open) }
+    // The screen owns whether the lyrics are open, so a swipe on the cover can open them too.
     var attempt by remember { mutableIntStateOf(0) }
     var load by remember(track.id) { mutableStateOf<LyricsLoad>(LyricsLoad.Loading) }
     LaunchedEffect(track.id, open, attempt) {
@@ -185,7 +182,8 @@ internal fun LyricsPanel(track: Track, onLyrics: suspend (Track) -> Lyrics?, red
     var english by remember { mutableStateOf(prefs.getBoolean("english", false)) }
     fun choose(value: Boolean) { english = value; prefs.edit().putBoolean("english", value).apply() }
     Column(modifier.fillMaxWidth().animateContentSize(tween(if (reduced) 0 else 240))) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { open = !open }
+        // Hum's Lyrics | Up next switch names and closes the panel itself, so it hides this row.
+        if (header) Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { onOpenChange(!open) }
             .semantics { contentDescription = if (open) "Hide lyrics" else "Show lyrics" },
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
             Text("Lyrics", Modifier.semantics { heading() }, fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackground)

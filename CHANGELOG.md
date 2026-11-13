@@ -2,6 +2,25 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.17 (versionCode 61)
+
+### New
+- The player has a Lyrics | Up next switch just above the seek bar, where your thumb already is. Tap a side to open it; tap it again, press Back or swipe down to return to the big cover. Swiping up on the cover opens it too.
+- Opening Lyrics or Up next shrinks the cover into a thumbnail beside the title, and it grows back when you close them.
+- Under the big cover, a card shows the lyric line being sung now and the next one. Tap it to open Lyrics. Songs without synced lyrics show the next song instead.
+- Settings is one scrolling page instead of tabs. Appearance and Playback come first, then Account, Sources, Privacy and About. The recommendation choice is now a large switch instead of small chips.
+
+### Fixed
+- The search bar is even on both sides: the back arrow sits inside the field, and the ✕ clears the words.
+- Where a song plays from (for example YouTube) now sits beside the artist, instead of on its own line.
+
+### Known
+- Apple Music account playback is not available on 32-bit phones; Hum says so instead of failing.
+- Apple Music account playback is experimental and was built for Android 11 and newer; on Android 9 or 10 it may not start.
+- A playlist in the search results shows its author, not its song count: YouTube does not send the count with search results.
+- The background changes in one step when you change song or accent; it does not fade.
+- Connecting YouTube Music after choosing a Google account still opens Google’s sign-in page: Google does not let other apps reuse the phone’s Google login.
+
 ## 0.4.0-beta.16 (versionCode 60)
 
 ### Fixed

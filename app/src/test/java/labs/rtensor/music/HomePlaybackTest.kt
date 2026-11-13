@@ -97,7 +97,9 @@ class HomePlaybackTest {
         compose.setContent { MusicApp(MusicState(current = one, queue = listOf(one), queueIndex = 0,
             radioError = "Couldn’t load YouTube Music recommendations.", reducedMotion = true), initialPage = "now",
             onRetryRadio = { retries++ }, onPlay = { _, _ -> starts++ }) }
-        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Retry recommendations"))
+        // Hum keeps the queue (and its end note) under Up next.
+        compose.onNodeWithText("Up next", substring = true).performClick()
+        compose.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Retry recommendations"))
         compose.onNodeWithText("Retry recommendations").performClick()
         compose.runOnIdle { assertEquals(1, retries); assertEquals(0, starts) }
     }

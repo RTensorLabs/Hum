@@ -21,6 +21,9 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -131,6 +134,8 @@ import labs.rtensor.music.data.AccentChoice
 import labs.rtensor.music.data.LookChoice
 import labs.rtensor.music.data.ArtworkUrl
 import labs.rtensor.music.data.Track
+import labs.rtensor.music.data.LyricLine
+import labs.rtensor.music.data.SyncedLyricsSource
 import labs.rtensor.music.data.Source
 import labs.rtensor.music.data.FeedEntry
 import labs.rtensor.music.data.FeedSection
@@ -503,7 +508,10 @@ fun MusicApp(
             Scaffold(
                 topBar = {
                     OnPlayerTones(Modifier.background(tones?.top ?: Color.Transparent)) {
-                        AppHeader(page, searchOpen, onHome = { navigate("home") }, onCloseSearch = { searchOpen = false; if (state.query.isNotEmpty()) onQuery(""); keyboard?.hide() }, onSettings = { navigate("settings") }, onBack = ::goBack) { SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f)) }
+                        val closeSearch: () -> Unit = { searchOpen = false; if (state.query.isNotEmpty()) onQuery(""); keyboard?.hide() }
+                        AppHeader(page, searchOpen, onHome = { navigate("home") }, onCloseSearch = closeSearch, onSettings = { navigate("settings") }, onBack = ::goBack) {
+                            SearchBar(state, onQuery, onSearch, searchFocus, Modifier.weight(1f), onClose = if (LocalLook.current.hum) closeSearch else null)
+                        }
                     }
                 },
                 bottomBar = {
@@ -681,9 +689,10 @@ private fun AppHeader(page: String, searchOpen: Boolean, onCloseSearch: () -> Un
                     androidx.compose.animation.AnimatedVisibility(searchOpen, Modifier.fillMaxWidth(),
                         enter = if (calm) EnterTransition.None else slideInVertically(tween(320, easing = EmphasizedDecelerate)) { it * 12 } + fadeIn(tween(QuickMs)),
                         exit = if (calm) ExitTransition.None else slideOutVertically(tween(260, easing = EmphasizedAccelerate)) { it * 12 } + fadeOut(tween(ExitMs))) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Spacer(Modifier.width(6.dp)); search()
-                            IconButton(onClick = onCloseSearch, modifier = Modifier.size(48.dp)) { Icon(Icons.Outlined.Close, "Close search", Modifier.size(22.dp)) }
+                        // One pill with the page's gutters on both sides: the back arrow inside it on the left closes
+                        // search, the ✕ on the right clears the words.
+                        Row(Modifier.padding(start = 12.dp, end = 20.dp), verticalAlignment = Alignment.CenterVertically) {
+                            search()
                         }
                     }
                 }
@@ -1506,14 +1515,17 @@ private fun CollectionScreen(state: MusicState, onPlay: (Track, List<Track>) -> 
 }
 
 @Composable
-private fun SearchBar(state: MusicState, onQuery: (String) -> Unit, onSearch: () -> Unit, focus: FocusRequester, modifier: Modifier = Modifier) {
+private fun SearchBar(state: MusicState, onQuery: (String) -> Unit, onSearch: () -> Unit, focus: FocusRequester, modifier: Modifier = Modifier,
+    onClose: (() -> Unit)? = null) {
     val keyboard = LocalSoftwareKeyboardController.current
     val submit = { keyboard?.hide(); onSearch() }
     OutlinedTextField(
         value = state.query, onValueChange = onQuery,
         modifier = modifier.focusRequester(focus).semantics { contentDescription = "Search music" }, singleLine = true,
         placeholder = { Text("Songs, artists or a link", fontSize = 13.sp, maxLines = 1) },
-        leadingIcon = { IconButton(onClick = submit, enabled = state.query.isNotBlank() && !state.searching) { Icon(Icons.Outlined.Search, "Search YouTube", Modifier.size(20.dp)) } },
+        // With a way to close (Hum), the leading icon is the back arrow; the keyboard's Search key searches.
+        leadingIcon = { if (onClose != null) IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Close search", Modifier.size(20.dp)) }
+            else IconButton(onClick = submit, enabled = state.query.isNotBlank() && !state.searching) { Icon(Icons.Outlined.Search, "Search YouTube", Modifier.size(20.dp)) } },
         trailingIcon = { if (state.query.isNotEmpty()) IconButton(onClick = { onQuery(""); keyboard?.hide() }) { Icon(Icons.Outlined.Close, "Clear search", Modifier.size(18.dp)) } },
         shape = LocalLook.current.field,
         colors = OutlinedTextFieldDefaults.colors(
@@ -1768,10 +1780,14 @@ private fun HistoryRow(event: PlayEvent, time: String, current: Boolean, onPlay:
 private const val QuickMs = 160
 private const val SwapMs = 180
 
+@OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 @Composable
 private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () -> Unit, onNext: () -> Unit, onSeek: (Long) -> Unit,
     onSave: (Track) -> Unit, onSkipTo: (Int) -> Unit, onProcessing: (Boolean) -> Unit, playbackPosition: StateFlow<Long>?, onRetryRadio: () -> Unit, onLyrics: suspend (Track) -> labs.rtensor.music.data.Lyrics?,
     audioLevels: StateFlow<labs.rtensor.dsp.AudioLevelFrame?>?, metering: MeteringClaims) {
+    // Lyrics mode stays on from song to song, so it is kept above the moment between songs when nothing plays.
+    var lyricsOpen by rememberSaveable { mutableStateOf(false) }
+    var panelChoice by rememberSaveable { mutableStateOf("") }
     val track = state.loadingTrack ?: state.current
     if (track == null) {
         Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) { Text("Choose a recording to start listening.", color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -1811,21 +1827,22 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
         // the poster title, meter and controls with the next song still in view. Classic keeps its
         // smaller 0.3.32 cover; Soft's fills the whole width, as in 0.3.31.
         val gutter = if (look.soft) 24.dp else 20.dp
-        // With the player pinned (Hum), open lyrics shrink the cover so the words get the room.
-        var lyricsOpen by rememberSaveable { mutableStateOf(false) }
+        // With the player pinned (Hum), open lyrics turn the player into lyrics mode: the cover becomes a
+        // thumbnail beside the title, the words fill the middle, and the controls sit at the bottom.
         val coverFull = when (look.choice) {
             LookChoice.CLASSIC -> (maxHeight * .31f).coerceIn(150.dp, 250.dp)
             LookChoice.SOFT -> maxWidth - gutter * 2
             LookChoice.ROOM -> minOf(maxWidth - 40.dp, maxHeight * .37f).coerceAtLeast(150.dp)
-            LookChoice.HUM -> minOf(maxWidth - 40.dp, maxHeight * .30f).coerceAtLeast(150.dp)
+            LookChoice.HUM -> minOf(maxWidth - 40.dp, maxHeight * .38f).coerceAtLeast(150.dp)
         }
-        val coverShrunk = look.hum && lyricsOpen && track.source == labs.rtensor.music.data.Source.YOUTUBE
-        val coverFolded = coverShrunk && maxHeight < 720.dp
-        val coverSize by animateDpAsState(if (coverShrunk) minOf(coverFull, 96.dp) else coverFull, tween(if (reduced) 0 else 240), label = "cover size")
+        val hasLyrics = track.source == labs.rtensor.music.data.Source.YOUTUBE
+        // Hum: which of Lyrics | Up next is open; a song without lyrics shows the queue instead.
+        val panel = if (!look.hum) "" else if (panelChoice == "lyrics" && !hasLyrics) "queue" else panelChoice
+        BackHandler(panel != "") { panelChoice = "" }
         // The queue continues right under the controls, so scrolling down shows what plays next.
         // Hum pins the player: only the queue below it scrolls, so the cover and controls never move.
         val tailTop: @Composable () -> Unit = {
-                    RouteLabel(state.routeLabel)
+                    if (!look.hum) RouteLabel(state.routeLabel)
                     if (showsAudioComparison(state)) {
                         when (look.choice) {
                             LookChoice.CLASSIC -> ClassicAudioComparison(state, onProcessing)
@@ -1836,7 +1853,7 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     if (state.developerOptions) ChannelMonitor(state.audioProcessing.report, playing && !loading, track.id, audioLevels) { metering.claim("monitor", it) }
         }
         val tailLyrics: @Composable ((Boolean) -> Unit) -> Unit = { onOpenChange ->
-                    LyricsPanel(track, onLyrics, reduced, Modifier.padding(top = 16.dp), positions = playbackPosition, onSeek = onSeek, onOpenChange = onOpenChange)
+                    LyricsPanel(track, onLyrics, reduced, lyricsOpen, onOpenChange, Modifier.padding(top = 16.dp), positions = playbackPosition, onSeek = onSeek)
         }
         val tailUpNext: @Composable () -> Unit = {
                     Spacer(Modifier.height(30.dp))
@@ -1852,18 +1869,49 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                     }
         }
         val playerTail: @Composable () -> Unit = { tailTop(); tailLyrics { lyricsOpen = it }; tailUpNext() }
+        // Room and Hum's player in two parts (title and meter, then seek line and transport), so Hum's lyrics
+        // mode can put the controls under the words.
+        val posterTop: @Composable () -> Unit = {
+                        Spacer(Modifier.height(20.dp))
+                        // The title rises into place from below while the old one lifts away: a different
+                        // motion from the cover so the two never look like one sliding block.
+                        // A poster title (two lines at most, smaller when it needs to be), then the
+                        // artist with the codec badge.
+                        val badge = if (look.hum) humBadge(state.routeLabel) else audioBadge(state.routeLabel)
+                        NowTitle(track, reduced, saved, { onSave(track) }) { shown ->
+                            PosterTitle(shown.title)
+                            ArtistLine(shown.artist, badge)
+                        }
+                        // The small level meter: shown only while live levels move it. Its line is always
+                        // reserved, so nothing moves when it appears.
+                        val report = state.audioProcessing.report
+                        val meterLive = playing && !loading && !reduced && state.developerOptions && audioLevels != null
+                        if (state.developerOptions) LiveMetering("meter", meterLive, metering)
+                        val frame = audioLevels?.collectAsStateWithLifecycle()
+                        val bars = markOn(LocalAccent.current.accent, scheme.background, scheme.onBackground)
+                        if (!look.hum || state.developerOptions) Box(Modifier.fillMaxWidth().padding(top = 8.dp).height(16.dp)) {
+                            // Drawn only while it moves; a still meter reads as broken. The line stays reserved.
+                            if (report != null && meterLive) LevelMeter(report, frame, meterLive, bars, Modifier.testTag("level-meter"))
+                        }
+        }
+        val posterControls: @Composable () -> Unit = {
+                        Spacer(Modifier.height(10.dp))
+                        PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, null, onSeek)
+                        LoadingNote(state, loading, reduced, top = 4.dp)
+                        Spacer(Modifier.height(6.dp))
+                        // Symmetric transport keeps Play/Pause on the screen centre.
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                            TransportButton("Previous", Glyph.Previous, onPrevious, enabled = canSkip)
+                            PlayButton(if (loading) 0 else if (playing) 1 else 2, enabled = !state.resolving, reduced = reduced, onClick = onToggle)
+                            TransportButton("Next", Glyph.Next, onNext, enabled = canSkip && hasNext)
+                        }
+        }
         val playerBlock: @Composable () -> Unit = {
                 Column(Modifier.fillMaxWidth()) {
-                    // On a short phone even the small cover leaves the lyrics no room, so it folds away
-                    // while they are open and comes back when they close.
-                    AnimatedVisibility(!coverFolded,
-                        enter = if (reduced) EnterTransition.None else expandVertically(tween(240)) + fadeIn(tween(240)),
-                        exit = if (reduced) ExitTransition.None else shrinkVertically(tween(240)) + fadeOut(tween(160))) {
-                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            Box(Modifier.width(coverSize)) {
-                                CoverDeck(track, queueIndex, state.queue.getOrNull(queueIndex - 1), state.queue.getOrNull(queueIndex + 1), reduced,
-                                    canPrevious = canSkip, canNext = canSkip && hasNext, onPrevious = onPrevious, onNext = onNext)
-                            }
+                    if (!look.hum) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        Box(Modifier.width(coverFull)) {
+                            CoverDeck(track, queueIndex, state.queue.getOrNull(queueIndex - 1), state.queue.getOrNull(queueIndex + 1), reduced,
+                                canPrevious = canSkip, canNext = canSkip && hasNext, onPrevious = onPrevious, onNext = onNext)
                         }
                     }
                     if (look.soft) {
@@ -1901,37 +1949,8 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
                             LabelledControl("Next", Glyph.Next, onNext, enabled = canSkip && hasNext)
                         }
                     } else {
-                        Spacer(Modifier.height(20.dp))
-                        // The title rises into place from below while the old one lifts away: a different
-                        // motion from the cover so the two never look like one sliding block.
-                        // A poster title (two lines at most, smaller when it needs to be), then the
-                        // artist with the codec badge.
-                        val badge = audioBadge(state.routeLabel)
-                        NowTitle(track, reduced, saved, { onSave(track) }) { shown ->
-                            PosterTitle(shown.title)
-                            ArtistLine(shown.artist, badge)
-                        }
-                        // The small level meter: shown only while live levels move it. Its line is always
-                        // reserved, so nothing moves when it appears.
-                        val report = state.audioProcessing.report
-                        val meterLive = playing && !loading && !reduced && state.developerOptions && audioLevels != null
-                        if (state.developerOptions) LiveMetering("meter", meterLive, metering)
-                        val frame = audioLevels?.collectAsStateWithLifecycle()
-                        val bars = markOn(LocalAccent.current.accent, scheme.background, scheme.onBackground)
-                        Box(Modifier.fillMaxWidth().padding(top = 8.dp).height(16.dp)) {
-                            // Drawn only while it moves; a still meter reads as broken. The line stays reserved.
-                            if (report != null && meterLive) LevelMeter(report, frame, meterLive, bars, Modifier.testTag("level-meter"))
-                        }
-                        Spacer(Modifier.height(10.dp))
-                        PlaybackTimeline(playbackPosition, position, duration, playing, reduced, pending, null, onSeek)
-                        LoadingNote(state, loading, reduced, top = 4.dp)
-                        Spacer(Modifier.height(6.dp))
-                        // Symmetric transport keeps Play/Pause on the screen centre.
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                            TransportButton("Previous", Glyph.Previous, onPrevious, enabled = canSkip)
-                            PlayButton(if (loading) 0 else if (playing) 1 else 2, enabled = !state.resolving, reduced = reduced, onClick = onToggle)
-                            TransportButton("Next", Glyph.Next, onNext, enabled = canSkip && hasNext)
-                        }
+                        posterTop()
+                        posterControls()
                     }
                     if (!look.hum) playerTail()
                 }
@@ -1967,31 +1986,205 @@ private fun NowScreen(state: MusicState, onToggle: () -> Unit, onPrevious: () ->
             }
         }
         if (look.hum) Column(Modifier.fillMaxSize().padding(start = gutter, end = gutter, top = 10.dp)) {
-            playerBlock()
-            // The lyric window fills what is left under the pinned player, and opening the lyrics brings
-            // them to the top of that area, so the current line is always in view.
-            val tailList = rememberLazyListState()
-            val tailScope = rememberCoroutineScope()
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                CompositionLocalProvider(LocalLyricsViewport provides maxHeight) {
-                    LazyColumn(Modifier.fillMaxSize(), state = tailList, contentPadding = PaddingValues(bottom = 32.dp)) {
-                        item(key = "player-tail") { Column { tailTop() } }
-                        item(key = "lyrics") {
-                            Column { tailLyrics { open ->
-                                lyricsOpen = open
-                                if (open) tailScope.launch { if (reduced) tailList.scrollToItem(1) else tailList.animateScrollToItem(1) }
-                            } }
-                        }
-                        item(key = "up-next") { Column { tailUpNext() } }
-                        queueItems()
+            val deck: @Composable (Modifier) -> Unit = { box ->
+                Box(box) {
+                    CoverDeck(track, queueIndex, state.queue.getOrNull(queueIndex - 1), state.queue.getOrNull(queueIndex + 1), reduced,
+                        canPrevious = canSkip, canNext = canSkip && hasNext, onPrevious = onPrevious, onNext = onNext)
+                }
+            }
+            val close = { panelChoice = "" }
+            val open = { panelChoice = if (hasLyrics) "lyrics" else "queue" }
+            // Lyrics or the queue: the cover shrinks to a thumbnail beside the title (it still swipes left and right
+            // to change song). Swiping down here brings the big cover back.
+            val compactHeader: @Composable (Modifier) -> Unit = { cover ->
+                Row(Modifier.fillMaxWidth().then(verticalSwipe(onDown = close)).padding(bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    deck(cover.size(64.dp))
+                    Spacer(Modifier.width(14.dp))
+                    val badge = humBadge(state.routeLabel)
+                    NowTitle(track, reduced, saved, { onSave(track) }) { shown ->
+                        ScrollingMetadata(shown.title, PosterStyle.copy(fontSize = 24.sp, lineHeight = 26.sp, color = scheme.onBackground),
+                            Modifier.semantics { heading() }, poster = true)
+                        ArtistLine(shown.artist, badge)
                     }
                 }
             }
+            // The big cover: swiping up opens the lyrics (or the queue, for songs without lyrics); left and right
+            // still change song.
+            val bigHeader: @Composable (Modifier) -> Unit = { cover ->
+                Column(Modifier.fillMaxWidth()) {
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        deck(cover.width(coverFull).then(verticalSwipe(onUp = open)).semantics {
+                            customActions = listOfNotNull(
+                                if (hasLyrics) CustomAccessibilityAction("Show lyrics") { panelChoice = "lyrics"; true } else null,
+                                CustomAccessibilityAction("Show queue") { panelChoice = "queue"; true })
+                        })
+                    }
+                    posterTop()
+                }
+            }
+            // Opening Lyrics or Up next, the cover flies up into the thumbnail spot (and back down on closing)
+            // while the titles cross-fade. Reduced motion swaps them at once.
+            if (reduced) { if (panel != "") compactHeader(Modifier) else bigHeader(Modifier) }
+            else SharedTransitionLayout {
+                AnimatedContent(panel != "", label = "now cover", transitionSpec = {
+                    (fadeIn(tween(200, 120)) togetherWith fadeOut(tween(100))).using(SizeTransform(clip = false))
+                }) { compact ->
+                    val cover = Modifier.sharedElement(rememberSharedContentState("now-cover"), this,
+                        boundsTransform = { _, _ -> tween(380, easing = EmphasizedDecelerate) })
+                    if (compact) compactHeader(cover) else bigHeader(cover)
+                }
+            }
+            // The middle: the lyrics, the queue, or (under the big cover) the route and audio notes.
+            // The new middle fades in once the old title has faded out, so the two never overlap mid-flight.
+            AnimatedContent(panel, Modifier.weight(1f).fillMaxWidth(), label = "now middle", transitionSpec = {
+                if (reduced) (EnterTransition.None togetherWith ExitTransition.None)
+                else (fadeIn(tween(220, 140)) togetherWith fadeOut(tween(80)))
+            }) { panel -> BoxWithConstraints(Modifier.fillMaxSize()) {
+                when (panel) {
+                    "lyrics" -> CompositionLocalProvider(LocalLyricsViewport provides maxHeight) {
+                        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 8.dp)) {
+                            item(key = "lyrics") {
+                                LyricsPanel(track, onLyrics, reduced, true, { if (!it) close() }, Modifier.padding(top = 8.dp),
+                                    positions = playbackPosition, onSeek = onSeek, header = false)
+                            }
+                        }
+                    }
+                    "queue" -> LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp)) { queueItems() }
+                    // Under the big cover: the route and audio notes, then the line being sung now (or the next
+                    // song, for songs without synced lyrics), centred in whatever room is left.
+                    else -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).heightIn(min = maxHeight),
+                        verticalArrangement = Arrangement.SpaceBetween) {
+                        Column { tailTop() }
+                        LyricPeek(track, hasLyrics, playbackPosition, upcoming.firstOrNull()?.value, reduced,
+                            onLyrics = { panelChoice = "lyrics" }, onQueue = { panelChoice = "queue" })
+                        Spacer(Modifier.height(0.dp))
+                    }
+                }
+            } }
+            // Lyrics | Up next sits just above the seek line, where the thumb already is. Tapping the open side again
+            // closes it.
+            PanelSwitch(panel, hasLyrics, upcoming.size, reduced, if (panel != "") verticalSwipe(onDown = close) else Modifier) {
+                panelChoice = if (panel == it) "" else it
+            }
+            posterControls()
+            Spacer(Modifier.height(12.dp))
         } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = gutter, end = gutter, top = 10.dp, bottom = 32.dp)) {
             item(key = "player") { playerBlock() }
             queueItems()
         }
     }
+    }
+}
+
+/**
+ * Under Hum's big cover: a card with the synced line being sung now and the next one dimmed below it. Tapping
+ * it opens Lyrics. A song with no synced lines shows the next song instead, which opens Up next.
+ */
+@Composable
+private fun LyricPeek(track: Track, hasLyrics: Boolean, positions: StateFlow<Long>?, next: Track?, reduced: Boolean,
+    onLyrics: () -> Unit, onQueue: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val load = LocalSyncedLyrics.current
+    // The view model caches synced lines per song, so this shares the Lyrics panel's fetch.
+    val lines by produceState(emptyList<LyricLine>(), track.id, hasLyrics) {
+        value = emptyList()
+        if (!hasLyrics) return@produceState
+        for (wait in longArrayOf(0, 3_000, 10_000)) {
+            delay(wait)
+            val got = try { load(track) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
+            if (got.isNotEmpty()) { value = got; break }
+        }
+    }
+    val clock = (positions ?: remember { kotlinx.coroutines.flow.MutableStateFlow(0L) }).collectAsState()
+    val active by remember(lines) { derivedStateOf { SyncedLyricsSource.activeIndex(lines, clock.value) } }
+    val card = Modifier.fillMaxWidth().padding(vertical = 8.dp).clip(RoundedCornerShape(16.dp))
+        .background(scheme.onBackground.copy(alpha = .06f))
+    val label: @Composable (String) -> Unit = { text ->
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(text.uppercase(), style = MonoSmall, color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(18.dp), tint = scheme.onSurfaceVariant)
+        }
+    }
+    if (lines.isNotEmpty()) {
+        val line = lines.getOrNull(active)?.text?.takeIf { it.isNotBlank() } ?: "♪"
+        val after = lines.getOrNull(active + 1)?.text?.takeIf { it.isNotBlank() }
+        Column(card.clickable(onClickLabel = "Open lyrics", role = Role.Button, onClick = onLyrics).padding(horizontal = 16.dp, vertical = 12.dp)) {
+            label("Lyrics")
+            AnimatedContent(line to after, label = "lyric peek", transitionSpec = {
+                if (reduced) (EnterTransition.None togetherWith ExitTransition.None)
+                else (fadeIn(tween(220, 60)) + slideInVertically(tween(280, easing = EmphasizedDecelerate)) { it / 3 }) togetherWith
+                    (fadeOut(tween(120)) + slideOutVertically(tween(200)) { -it / 3 })
+            }) { (now, then) ->
+                Column {
+                    Text(now, fontSize = 19.sp, lineHeight = 24.sp, fontWeight = FontWeight.Bold, color = scheme.onBackground,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                    if (then != null) Text(then, fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold,
+                        color = scheme.onBackground.copy(alpha = .42f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+        }
+    } else if (next != null) {
+        Row(card.clickable(onClickLabel = "Open Up next", role = Role.Button, onClick = onQueue).padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Artwork(next, Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)), size = 48.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text("NEXT", style = MonoSmall, color = scheme.onSurfaceVariant)
+                Text(next.title, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = scheme.onBackground, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(next.artist, fontSize = 13.sp, color = scheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(18.dp), tint = scheme.onSurfaceVariant)
+        }
+    }
+}
+
+/**
+ * Hum's Lyrics | Up next switch: two wide segments (48dp tall) just above the seek line, so one thumb reaches it.
+ * [panel] is the open side ("lyrics", "queue") or "" when the big cover shows.
+ */
+@Composable
+private fun PanelSwitch(panel: String, hasLyrics: Boolean, count: Int, reduced: Boolean, modifier: Modifier, onPick: (String) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Row(modifier.fillMaxWidth().padding(top = 8.dp).clip(RoundedCornerShape(16.dp)).background(scheme.onBackground.copy(alpha = .08f))
+        .padding(3.dp).selectableGroup()) {
+        Segment("Lyrics", panel == "lyrics", hasLyrics, reduced, Modifier.weight(1f)) { onPick("lyrics") }
+        Segment(if (count > 0) "Up next · $count" else "Up next", panel == "queue", true, reduced, Modifier.weight(1f)) { onPick("queue") }
+    }
+}
+
+@Composable
+private fun Segment(label: String, selected: Boolean, enabled: Boolean, reduced: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val spec = tween<Color>(if (reduced) 0 else QuickMs)
+    val fill by animateColorAsState(if (selected) scheme.onBackground else Color.Transparent, spec, label = "segment fill")
+    val ink by animateColorAsState(when {
+        selected -> scheme.background
+        enabled -> scheme.onBackground
+        else -> scheme.onBackground.copy(alpha = .38f)
+    }, spec, label = "segment ink")
+    Box(modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(13.dp)).background(fill)
+        .selectable(selected, enabled = enabled, role = Role.Tab, onClick = onClick), contentAlignment = Alignment.Center) {
+        Text(label, fontSize = 14.sp, fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium, color = ink, maxLines = 1)
+    }
+}
+
+/**
+ * A vertical swipe of at least 48dp: [onUp] for a swipe up, [onDown] for a swipe down. It only claims the
+ * touch once it moves further up or down than sideways, so a sideways swipe on the same spot still works.
+ */
+@Composable
+private fun verticalSwipe(onUp: () -> Unit = {}, onDown: () -> Unit = {}): Modifier {
+    val up by rememberUpdatedState(onUp)
+    val down by rememberUpdatedState(onDown)
+    return Modifier.pointerInput(Unit) {
+        val threshold = 48.dp.toPx()
+        var total = 0f
+        detectVerticalDragGestures(
+            onDragStart = { total = 0f },
+            onDragEnd = { if (total < -threshold) up() else if (total > threshold) down() },
+        ) { change, dy -> change.consume(); total += dy }
     }
 }
 
@@ -2262,6 +2455,12 @@ private fun PlaybackTimeline(updates: StateFlow<Long>?, fallback: Long, duration
     ProgressLine(if (pending) 0 else position, duration, playing, reduced, badge, onSeek)
 }
 
+/** Hum's chip beside the artist: the source ("YouTube", "On this phone") and, when known, the codec. */
+internal fun humBadge(route: String): String? {
+    val source = route.substringBefore(" · ").trim().takeIf { it.isNotBlank() }
+    return listOfNotNull(source, audioBadge(route)).joinToString(" · ").ifBlank { null }
+}
+
 /**
  * The audio format as a short technical badge, taken from the route label the player already
  * shows ("YouTube · AAC compressed 48.0 kHz · stereo · unchanged" gives "AAC · 48 kHz").
@@ -2314,7 +2513,7 @@ private fun ArtistLine(artist: String, badge: String?) {
             if (artist.isNotBlank()) Text(" · ", fontSize = 15.sp, color = scheme.onSurfaceVariant)
             Text(badge, style = MonoSmall, fontSize = 11.sp, lineHeight = 14.sp, color = scheme.onSurfaceVariant, maxLines = 1,
                 modifier = Modifier.border(1.dp, scheme.outline, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 2.dp)
-                    .semantics { contentDescription = "Audio format $badge" })
+                    .semantics { contentDescription = "Audio: $badge" })
         }
     }
 }
@@ -2628,7 +2827,7 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
         Text(clock(seconds * 1000), style = times, color = timeColour)
         if (badge != null) Text(badge, style = MonoSmall, fontSize = 11.sp, lineHeight = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1,
             modifier = Modifier.padding(horizontal = 8.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(6.dp))
-                .padding(horizontal = 6.dp, vertical = 2.dp).semantics { contentDescription = "Audio format $badge" })
+                .padding(horizontal = 6.dp, vertical = 2.dp).semantics { contentDescription = "Audio: $badge" })
         Text(if (duration > 0) clock(duration) else "—:—", style = times, color = timeColour)
     }
 }
@@ -2639,30 +2838,14 @@ private fun ProgressLine(position: Long, duration: Long, playing: Boolean, reduc
 // ---------------------------------------------------------------------------------------
 
 private data class SettingsSection(val label: String, val icon: ImageVector)
-private val settingsSections = listOf(
-    SettingsSection("Account", Icons.Outlined.AccountCircle),
-    SettingsSection("Playback", Glyph.MusicNote),
-    SettingsSection("Sources", Glyph.AudioFile),
-    SettingsSection("Appearance", Glyph.Contrast),
-    SettingsSection("Privacy", Glyph.Shield),
-    SettingsSection("About", Icons.Outlined.Info),
-)
-
-@Composable
-private fun SettingsTabs(selected: Int, reduced: Boolean, onSelect: (Int) -> Unit) {
-    val look = LocalLook.current
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        settingsSections.forEachIndexed { index, section ->
-            val on = index == selected
-            val fill by animateColorAsState(if (on) look.selectorThumb else Color.Transparent, tween(if (reduced) 0 else QuickMs), label = "settings tab fill")
-            Box(
-                Modifier.clip(look.button).background(fill).border(1.dp, if (on) look.selectorThumb else look.line, look.button)
-                    .clickable(role = Role.Tab) { onSelect(index) }.padding(horizontal = 16.dp, vertical = 10.dp)
-                    .semantics { this.selected = on },
-            ) { Text(section.label, fontSize = 14.sp, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Medium, color = if (on) look.onSelectorThumb else look.text) }
-        }
-    }
-}
+// Ordered by how often each is changed: the everyday choices sit nearest the thumb's
+// starting point once the page is scrolled, and the rarely touched ones further down.
+private val lookSection = SettingsSection("Appearance", Glyph.Contrast)
+private val playbackSection = SettingsSection("Playback", Glyph.MusicNote)
+private val accountSection = SettingsSection("Account", Icons.Outlined.AccountCircle)
+private val sourcesSection = SettingsSection("Sources", Glyph.AudioFile)
+private val privacySection = SettingsSection("Privacy", Glyph.Shield)
+private val aboutSection = SettingsSection("About", Icons.Outlined.Info)
 
 @Composable
 private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccent: (AccentChoice) -> Unit, onLocal: () -> Unit,
@@ -2684,77 +2867,14 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
     val scroll = rememberScrollState()
     val scheme = MaterialTheme.colorScheme
     var showImport by rememberSaveable { mutableStateOf(false) }
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    val look = LocalLook.current
     Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        // The Listening room names the page once, in the header; Classic and Soft keep their headline.
-        if (!LocalLook.current.room) PageTitle("Settings")
+        // Hum keeps the hard-to-reach top for the page name only, so every control starts lower down.
+        if (look.hum) Spacer(Modifier.height(20.dp))
+        // The Listening room names the page once, in the header; the other looks keep their headline.
+        if (!look.room) PageTitle("Settings")
 
-        SettingsTabs(tab, state.reducedMotion) { tab = it }
-        AnimatedContent(targetState = tab, label = "settings tab", transitionSpec = {
-            if (state.reducedMotion) (EnterTransition.None togetherWith ExitTransition.None).using(null)
-            else {
-                val dir = if (targetState > initialState) 1 else -1
-                (fadeIn(tween(EnterMs, 60)) + slideInHorizontally(tween(EnterMs, easing = EmphasizedDecelerate)) { it / 8 * dir }) togetherWith
-                    (fadeOut(tween(100)) + slideOutHorizontally(tween(QuickMs, easing = EmphasizedAccelerate)) { -it / 10 * dir })
-            }.using(SizeTransform(clip = false))
-        }) { t -> Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        if (t == 0) {
-        AccountCard(state, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onConnect, onWebSignIn, onDisconnect, onCancelConnect)
-
-        }
-        if (t == 1) {
-        SettingsCard {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
-                Text("Recommendation source", fontSize = 16.sp, fontWeight = FontWeight.Medium)
-                Text("Choose who recommends your next songs. Audio uses your existing playback sources.", fontSize = 12.sp, color = scheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 4.dp, bottom = 6.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    labs.rtensor.music.recommendations.RecommendationEngine.entries.forEach { engine ->
-                        FilterChip(selected = state.recommendationEngine == engine, onClick = {
-                            if (engine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY && !state.spotifyAccount.connected) onConnectSpotify()
-                            else onRecommendationEngine(engine)
-                        }, label = { Text(engine.label) }, modifier = Modifier.semantics { contentDescription = "${engine.label} recommendations" })
-                    }
-                }
-                if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY) Text("Spotify discovery is experimental.", fontSize = 12.sp, color = scheme.onSurfaceVariant)
-                if (state.spotifyAccount.connecting) Text("Connecting Spotify…", fontSize = 12.sp, color = scheme.onSurfaceVariant)
-                if (state.spotifyAccount.connected) Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Spotify · ${state.spotifyAccount.name}", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-                    TextButton(onClick = onDisconnectSpotify) { Text("Disconnect Spotify", fontSize = 12.sp) }
-                }
-                state.spotifyAccount.error?.let { Text(it, fontSize = 12.sp, color = scheme.onSurfaceVariant) }
-            }
-            CardDivider()
-            SettingItem("Autoplay radio", "When the queue ends, keep playing similar songs", Glyph.Sparkle, onClick = { onAutoplay(!state.autoplay) }) {
-                Switch(checked = state.autoplay, onCheckedChange = onAutoplay, modifier = Modifier.semantics { contentDescription = "Autoplay radio" })
-            }
-
-        }
-
-        }
-        if (t == 2) {
-        SettingsCard {
-            val count = state.playbackSources.size
-            // A saved server is only a candidate; each song is checked before anything plays from it.
-            SettingItem("Playback sources",
-                if (state.appleAccount.connected) "Apple Music signed in${if (state.tidalAccount.connected) " · TIDAL" else ""}"
-                else if (state.tidalAccount.connected) "TIDAL signed in${if (count > 0) " · $count saved ${if (count == 1) "server" else "servers"}" else ""}"
-                else if (count == 0) "Sign in to Apple Music, TIDAL or connect a music source"
-                else "$count saved ${if (count == 1) "server" else "servers"} · checked per song before it plays",
-                Glyph.MusicNote, onClick = { showSources = !showSources }, expanded = showSources)
-            if (showSources) PlaybackSourcesEditor(state, { showSources = false }, onConnectSource, onRemoveSource,
-                onConnectTidal, onDisconnectTidal, onCancelTidal, onConnectApple, onNativeApple, onDisconnectApple, onCancelApple)
-            CardDivider()
-            SettingItem("Import audio", if (state.mastersBusy) state.mastersSummary else "Songs, folders, lossless and Atmos files", Icons.Outlined.Add, onClick = { showImport = true })
-            state.importMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }
-            CardDivider()
-            SettingItem("Export downloads", if (state.downloads.isEmpty()) "Download songs first, then copy them to a folder" else "Copy ${state.downloads.size} downloaded ${if (state.downloads.size == 1) "song" else "songs"} to a folder", Icons.Outlined.Add, onClick = onExportDownloads)
-            state.exportMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }
-        }
-
-        }
-        if (t == 3) {
+        SettingsGroupHeader(lookSection)
         SettingsCard {
             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                 Text("Theme", fontSize = 16.sp, fontWeight = FontWeight.Medium)
@@ -2778,8 +2898,59 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
             }
         }
 
+        SettingsGroupHeader(playbackSection)
+        SettingsCard {
+            SettingItem("Autoplay radio", "When the queue ends, keep playing similar songs", Glyph.Sparkle, onClick = { onAutoplay(!state.autoplay) }) {
+                Switch(checked = state.autoplay, onCheckedChange = onAutoplay, modifier = Modifier.semantics { contentDescription = "Autoplay radio" })
+            }
+            CardDivider()
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp)) {
+                Text("Recommendation source", fontSize = 16.sp, fontWeight = FontWeight.Medium)
+                Text("Choose who recommends your next songs. Audio uses your existing playback sources.", fontSize = 12.sp, color = scheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 10.dp))
+                // A 48dp segmented control rather than small chips, so the choice is an easy target.
+                val engines = labs.rtensor.music.recommendations.RecommendationEngine.entries
+                SlidingSelector(engines.map { it.name to it.label }, state.recommendationEngine.name, state.reducedMotion,
+                    { "$it recommendations" }, Role.RadioButton) { id ->
+                    val engine = engines.first { it.name == id }
+                    if (engine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY && !state.spotifyAccount.connected) onConnectSpotify()
+                    else onRecommendationEngine(engine)
+                }
+                if (state.recommendationEngine == labs.rtensor.music.recommendations.RecommendationEngine.SPOTIFY) Text("Spotify discovery is experimental.", fontSize = 12.sp, color = scheme.onSurfaceVariant)
+                if (state.spotifyAccount.connecting) Text("Connecting Spotify…", fontSize = 12.sp, color = scheme.onSurfaceVariant)
+                if (state.spotifyAccount.connected) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Spotify · ${state.spotifyAccount.name}", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        color = scheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                    TextButton(onClick = onDisconnectSpotify) { Text("Disconnect Spotify", fontSize = 12.sp) }
+                }
+                state.spotifyAccount.error?.let { Text(it, fontSize = 12.sp, color = scheme.onSurfaceVariant) }
+            }
         }
-        if (t == 4) {
+
+        SettingsGroupHeader(accountSection)
+        AccountCard(state, onGoogleSignIn, onGoogleSignOut, onCancelGoogle, onConnect, onWebSignIn, onDisconnect, onCancelConnect)
+
+        SettingsGroupHeader(sourcesSection)
+        SettingsCard {
+            val count = state.playbackSources.size
+            // A saved server is only a candidate; each song is checked before anything plays from it.
+            SettingItem("Playback sources",
+                if (state.appleAccount.connected) "Apple Music signed in${if (state.tidalAccount.connected) " · TIDAL" else ""}"
+                else if (state.tidalAccount.connected) "TIDAL signed in${if (count > 0) " · $count saved ${if (count == 1) "server" else "servers"}" else ""}"
+                else if (count == 0) "Sign in to Apple Music, TIDAL or connect a music source"
+                else "$count saved ${if (count == 1) "server" else "servers"} · checked per song before it plays",
+                Glyph.MusicNote, onClick = { showSources = !showSources }, expanded = showSources)
+            if (showSources) PlaybackSourcesEditor(state, { showSources = false }, onConnectSource, onRemoveSource,
+                onConnectTidal, onDisconnectTidal, onCancelTidal, onConnectApple, onNativeApple, onDisconnectApple, onCancelApple)
+            CardDivider()
+            SettingItem("Import audio", if (state.mastersBusy) state.mastersSummary else "Songs, folders, lossless and Atmos files", Icons.Outlined.Add, onClick = { showImport = true })
+            state.importMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }
+            CardDivider()
+            SettingItem("Export downloads", if (state.downloads.isEmpty()) "Download songs first, then copy them to a folder" else "Copy ${state.downloads.size} downloaded ${if (state.downloads.size == 1) "song" else "songs"} to a folder", Icons.Outlined.Add, onClick = onExportDownloads)
+            state.exportMessage?.let { Text(it, fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(start = 66.dp, end = 16.dp, bottom = 12.dp)) }
+        }
+
+        SettingsGroupHeader(privacySection)
         SettingsCard {
             SettingItem("Keep listening history", "Powers the History tab and “Mixed for you”. Stays on this device.", Glyph.History, onClick = { onTrackHistory(!state.trackHistory) }) {
                 Switch(checked = state.trackHistory, onCheckedChange = onTrackHistory, modifier = Modifier.semantics { contentDescription = "Keep listening history" })
@@ -2797,8 +2968,7 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                 fontSize = 13.sp, lineHeight = 19.sp, color = scheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp))
         }
 
-        }
-        if (t == 5) {
+        SettingsGroupHeader(aboutSection)
         SettingsCard {
             SettingItem("Hum ${BuildConfig.VERSION_NAME}", "By RTensorLabs · preview channel on GitHub Releases", Icons.Outlined.Refresh)
             Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -2836,8 +3006,6 @@ private fun SettingsScreen(state: MusicState, onTheme: (String) -> Unit, onAccen
                     modifier = Modifier.semantics { contentDescription = "Developer options" })
             }
         }
-        }
-        } }
         Text("Hum · RTensorLabs · ${BuildConfig.VERSION_NAME}", fontSize = 12.sp, color = scheme.onSurfaceVariant,
             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 28.dp))
     }
