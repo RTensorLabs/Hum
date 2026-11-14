@@ -2,6 +2,20 @@
 
 All notable changes to Hum. Newest first. Every release adds an entry here and uses the same text as its GitHub release notes.
 
+## 0.4.0-beta.18 (versionCode 62)
+
+### Fixed
+- Synced lyrics, with the line highlighted as the song plays, are found for many more songs. YouTube uploads often carry the artist and video words in the title, such as "ARJN x KDS - KALYANI [ Official Lyrical Video ]" or "Arabic Kuthu - Video Song | Beast". Hum now finds the song name inside such titles and searches for it with the artist the title names.
+- A different song by the same artist is never shown as the lyrics; the song name has to match, and the length picks the right version.
+
+### Known
+- A title that joins the film name onto the song name without a separator, such as "Tum Hi Ho Aashiqui 2 Full Video Song HD", may still show plain lyrics only.
+- Apple Music account playback is not available on 32-bit phones; Hum says so instead of failing.
+- Apple Music account playback is experimental and was built for Android 11 and newer; on Android 9 or 10 it may not start.
+- A playlist in the search results shows its author, not its song count: YouTube does not send the count with search results.
+- The background changes in one step when you change song or accent; it does not fade.
+- Connecting YouTube Music after choosing a Google account still opens Google’s sign-in page: Google does not let other apps reuse the phone’s Google login.
+
 ## 0.4.0-beta.17 (versionCode 61)
 
 ### New
